@@ -22,11 +22,6 @@ lexeme = L.lexeme sc
 lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
--- instance (Repr a, Repr b) => Repr (Either a b) where
---   repr = either repr repr
--- instance (ShowErrorComponent e => Repr (ParseErrorBundle s e) where
---   repr = show
-
 data Object
   = Symbol Symbol
   | Pair Pair
