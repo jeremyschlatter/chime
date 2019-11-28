@@ -11,8 +11,14 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void String
 
+sc :: Parser ()
+sc = L.space space1 empty empty
+
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme $ L.space space1 empty empty
+lexeme = L.lexeme sc
+
+lexLit :: String -> Parser ()
+lexLit = void <$> L.symbol sc
 
 -- instance (Repr a, Repr b) => Repr (Either a b) where
 --   repr = either repr repr
@@ -48,7 +54,13 @@ symbol :: Parser Symbol
 symbol = lexeme $ some1 letterChar <&> MkSymbol
 
 pair :: Parser Pair
-pair = undefined
+pair = do
+  lexLit "("
+  car <- expression
+  lexLit "."
+  cdr <- expression
+  lexLit ")"
+  pure $ MkPair (car, cdr)
 
 character :: Parser Character
 character = undefined
