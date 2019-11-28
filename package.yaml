@@ -15,6 +15,7 @@ dependencies:
 default-extensions:
 - BlockArguments
 - LambdaCase
+- PatternSynonyms
 
 library:
   source-dirs: src

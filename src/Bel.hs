@@ -80,7 +80,11 @@ class Repr x where
 instance Repr Symbol where
   repr = toList . unSymbol
 instance Repr Pair where
-  repr (MkPair (car, cdr)) = "(" <> repr car <> " . " <> repr cdr <> ")"
+  repr p = "(" <> go p <> ")" where
+    go (MkPair (car, cdr)) = repr car <> case cdr of
+      Symbol Nil -> ""
+      Pair p' -> " " <> go p'
+      o -> " . " <> repr o
 instance Repr Character where
   repr = ("\\" <>) . maybeLongName . unCharacter where
     maybeLongName c = maybe (pure c) fst (find ((== c) . snd) controlChars)
@@ -94,14 +98,14 @@ instance Repr Object where
 symbol :: Parser Symbol
 symbol = lexeme $ some1 letterChar <&> MkSymbol
 
-nil :: Symbol
-nil = MkSymbol $ 'n' :| "il"
+pattern Nil :: Symbol
+pattern Nil = MkSymbol ('n' :| "il")
 
 pair :: Parser Pair
 pair = lexLit "(" *> pair' <* lexLit ")" where
   pair' :: Parser Pair
   pair' = liftA2 (curry MkPair) expression $
-    (lexLit "." *> expression) <|> (Pair <$> pair') <|> (pure $ Symbol nil)
+    (lexLit "." *> expression) <|> (Pair <$> pair') <|> (pure $ Symbol Nil)
 
 character :: Parser Character
 character = char '\\' *> fmap MkCharacter
