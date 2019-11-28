@@ -1,0 +1,7 @@
+resolver: lts-14.16
+
+packages:
+- .
+
+extra-deps:
+- megaparsec-8.0.0

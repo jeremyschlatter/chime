@@ -1,0 +1,43 @@
+name:                bel
+version:             0.1.0.0
+github:              "jeremyschlatter/bel"
+author:              "Jeremy Schlatter"
+copyright:           "2019 Jeremy Schlatter"
+
+extra-source-files:
+- README.md
+
+description:         Please see the README on GitHub at <https://github.com/jeremyschlatter/bel#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+default-extensions:
+- LambdaCase
+
+library:
+  source-dirs: src
+  dependencies:
+  - megaparsec
+
+executables:
+  bel-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - bel
+
+tests:
+  bel-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - bel
