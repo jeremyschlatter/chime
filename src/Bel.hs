@@ -32,44 +32,6 @@ newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char }
 newtype Pair = MkPair { unPair :: (Object, Object) }
 newtype Character = MkCharacter { unCharacter :: Char }
 
-controlChars :: [(String, Char)]
-controlChars =
-  [ ("nul", '\NUL')
-  , ("soh", '\SOH')
-  , ("stx", '\STX')
-  , ("etx", '\ETX')
-  , ("eot", '\EOT')
-  , ("enq", '\ENQ')
-  , ("ack", '\ACK')
-  , ("bel", '\BEL')
-  , ("dle", '\DLE')
-  , ("dc1", '\DC1')
-  , ("dc2", '\DC2')
-  , ("dc3", '\DC3')
-  , ("dc4", '\DC4')
-  , ("nak", '\NAK')
-  , ("syn", '\SYN')
-  , ("etb", '\ETB')
-  , ("can", '\CAN')
-  , ("del", '\DEL')
-  , ("sub", '\SUB')
-  , ("esc", '\ESC')
-  , ("em", '\EM')
-  , ("fs", '\FS')
-  , ("gs", '\GS')
-  , ("rs", '\RS')
-  , ("us", '\US')
-  , ("sp", '\SP')
-  , ("bs", '\BS')
-  , ("ht", '\HT')
-  , ("lf", '\LF')
-  , ("vt", '\VT')
-  , ("ff", '\FF')
-  , ("cr", '\CR')
-  , ("so", '\SO')
-  , ("si", '\SI')
-  ]
-
 class Repr x where
   repr :: x -> String
 instance Repr Symbol where
@@ -122,3 +84,41 @@ repl = forever $ putStr "> " *> getLine >>=
   either errorBundlePretty repr .
   (fmap evaluate) .
   parse (expression <* eof) "[input]"
+
+controlChars :: [(String, Char)]
+controlChars =
+  [ ("nul", '\NUL')
+  , ("soh", '\SOH')
+  , ("stx", '\STX')
+  , ("etx", '\ETX')
+  , ("eot", '\EOT')
+  , ("enq", '\ENQ')
+  , ("ack", '\ACK')
+  , ("bel", '\BEL')
+  , ("dle", '\DLE')
+  , ("dc1", '\DC1')
+  , ("dc2", '\DC2')
+  , ("dc3", '\DC3')
+  , ("dc4", '\DC4')
+  , ("nak", '\NAK')
+  , ("syn", '\SYN')
+  , ("etb", '\ETB')
+  , ("can", '\CAN')
+  , ("del", '\DEL')
+  , ("sub", '\SUB')
+  , ("esc", '\ESC')
+  , ("em", '\EM')
+  , ("fs", '\FS')
+  , ("gs", '\GS')
+  , ("rs", '\RS')
+  , ("us", '\US')
+  , ("sp", '\SP')
+  , ("bs", '\BS')
+  , ("ht", '\HT')
+  , ("lf", '\LF')
+  , ("vt", '\VT')
+  , ("ff", '\FF')
+  , ("cr", '\CR')
+  , ("so", '\SO')
+  , ("si", '\SI')
+  ]
