@@ -1,5 +1,6 @@
 module Bel where
 
+import Control.Applicative
 import Control.Monad
 import Data.Functor
 import Data.List
@@ -93,14 +94,14 @@ instance Repr Object where
 symbol :: Parser Symbol
 symbol = lexeme $ some1 letterChar <&> MkSymbol
 
+nil :: Symbol
+nil = MkSymbol $ 'n' :| "il"
+
 pair :: Parser Pair
-pair = do
-  lexLit "("
-  car <- expression
-  lexLit "."
-  cdr <- expression
-  lexLit ")"
-  pure $ MkPair (car, cdr)
+pair = lexLit "(" *> pair' <* lexLit ")" where
+  pair' :: Parser Pair
+  pair' = liftA2 (curry MkPair) expression $
+    (lexLit "." *> expression) <|> (Pair <$> pair') <|> (pure $ Symbol nil)
 
 character :: Parser Character
 character = char '\\' *> fmap MkCharacter
