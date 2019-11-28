@@ -43,3 +43,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - bel
+    - hspec

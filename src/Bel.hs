@@ -1,4 +1,7 @@
-module Bel where
+module Bel
+  ( module Bel
+  , module Text.Megaparsec.Error
+  ) where
 
 import Control.Applicative
 import Control.Monad
@@ -7,9 +10,11 @@ import Data.List
 import Data.List.NonEmpty
 import Data.Void
 
-import Text.Megaparsec
+import Text.Megaparsec hiding (parse)
+import qualified Text.Megaparsec as M (parse)
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Error (errorBundlePretty)
 
 type Parser = Parsec Void String
 
@@ -53,7 +58,7 @@ instance Repr Object where
     Stream -> "<stream>"
 
 symbol :: Parser Symbol
-symbol = lexeme $ some1 letterChar <&> MkSymbol
+symbol = (lexeme $ some1 letterChar <&> MkSymbol) <|> try (lexLit "(" *> lexLit ")" $> Nil)
 
 pattern Nil :: Symbol
 pattern Nil = MkSymbol ('n' :| "il")
@@ -78,12 +83,15 @@ expression =  (Symbol <$> symbol)
 evaluate :: Object -> Object
 evaluate = id
 
+parse :: FilePath -> String -> Either (ParseErrorBundle String Void) Object
+parse = M.parse (expression <* eof)
+
 repl :: IO ()
 repl = forever $ putStr "> " *> getLine >>=
   putStrLn .
   either errorBundlePretty repr .
   (fmap evaluate) .
-  parse (expression <* eof) "[input]"
+  parse "[input]"
 
 controlChars :: [(String, Char)]
 controlChars =
