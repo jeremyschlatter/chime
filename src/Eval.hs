@@ -68,6 +68,9 @@ readEval path =
 envLookup :: Symbol -> Environment -> Maybe Object
 envLookup = lookup
 
+pattern Sym       :: Char -> String -> Object
+pattern Sym n ame = Symbol (MkSymbol (n :| ame))
+
 evaluate :: Object -> EvalMonad Object
 evaluate = \case
   c@(Character _) -> pure c
@@ -84,9 +87,10 @@ evaluate = \case
       getEnv =
         (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
         use
-  Pair p -> case p of
-    MkPair (Symbol (MkSymbol ('q' :| "uote")), (Pair (MkPair (a, Symbol Nil)))) -> pure a
-    _ -> throwE $ "the only pair I know how to evaluate right now is (quote _)"
+  (properList -> (Just l)) -> case l of
+    [Sym 'q' "uote", a] -> pure a
+    _ -> throwE $ "I don't know how to evaluate this yet"
+  _ -> throwE $ "I don't know how to evaluate this yet"
 
 runEval :: EvalMonad a -> EvalState -> (Either Error a, EvalState)
 runEval = runState . runExceptT
