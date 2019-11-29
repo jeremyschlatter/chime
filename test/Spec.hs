@@ -21,7 +21,7 @@ eval s =
   either
     ((fmap undefined) . expectationFailure . ((s <> ": ") <>))
     pure
-    (readEval "test case" s)
+    (runEval $ readEval "test case" s)
 
 -- repl then compare
 evalShouldBe :: String -> String -> Expectation

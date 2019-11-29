@@ -24,9 +24,11 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
-  - megaparsec
-  - text
   - bytestring
+  - megaparsec
+  - mtl
+  - text
+  - transformers
 
 executables:
   bel-exe:
