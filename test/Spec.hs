@@ -27,6 +27,10 @@ eval s =
 evalShouldBe :: String -> String -> Expectation
 evalShouldBe a b = eval a >>= (`shouldBe` b) . repr
 
+evalShouldBeLike :: String -> (Object -> Maybe a) -> String -> Expectation
+evalShouldBeLike s f desc = eval s >>= \x ->
+  maybe (assertEqual (s <> " should evaluate to") desc (repr x)) (const $ pure ()) (f x)
+
 spec :: Spec
 spec = do
 
@@ -54,19 +58,21 @@ spec = do
 
   describe "evaluation" do
     let is = evalShouldBe 
+    let isLike = evalShouldBeLike
     it "evaluates examples from the spec" do
       "t" `is` "t"
       "nil" `is` "nil"
       "o" `is` "o"
       "apply" `is` "apply"
 
-      -- chars should be a list of all characters
-      eval "chars" >>= \x ->
-        flip maybe (const $ pure ())
-          (assertEqual
-            "chars should evaluate to" "a list of pairs of (<character> . <binary representation>)"
-            (repr x)
-          ) $
-            properList x >>= traverse \case
-              Pair (MkPair (Character _, s)) -> string s
-              _ -> Nothing
+      ("chars" `isLike` \x -> properList x >>= traverse \case
+          Pair (MkPair (Character _, s)) -> string s
+          _ -> Nothing
+       ) "a list of pairs of (<character> . <binary representation>)"
+
+      let varValList = \x -> properList x >>= traverse \case
+                          Pair (MkPair (Symbol _, _)) -> Just ()
+                          _ -> Nothing
+
+      ("globe" `isLike` varValList) "a list of (var . val) pairs"
+      ("scope" `isLike` varValList) "a list of (var . val) pairs"
