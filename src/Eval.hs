@@ -1,5 +1,6 @@
 module Eval where
 
+import Control.Lens.Combinators
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Data.Bifunctor
@@ -16,10 +17,16 @@ import Parse (parse, errorBundlePretty)
 
 type Error = String
 
-type EvalState = Int
+type Environment = [(Symbol, Object)]
+
+data EvalState = EvalState
+ { _globe :: Environment
+ , _scope :: Environment
+ }
+$(makeLenses ''EvalState)
 
 newState :: EvalState
-newState = 0
+newState = EvalState [] []
 
 type EvalMonad = ExceptT Error (State EvalState)
 
@@ -31,25 +38,30 @@ readEval path =
   parse path
 
 evaluate :: Object -> EvalMonad Object
-evaluate = except . \case
-  c@(Character _) -> Right c
-  s@Stream -> Right s
+evaluate = \case
+  c@(Character _) -> pure c
+  s@Stream -> pure s
   s@(Symbol (MkSymbol (toList -> s'))) -> case s' of
-    "nil" -> Right s
-    "o" -> Right s
-    "apply" -> Right s
-    "t" -> Right s
+    "nil" -> pure s
+    "o" -> pure s
+    "apply" -> pure s
+    "t" -> pure s
     -- chars is ASCII-only for now
-    "chars" -> Right $ listToPair $ flip fmap [0..127] \i ->
+    "chars" -> pure $ listToPair $ flip fmap [0..127] \i ->
       Pair $ MkPair $ (,)
         (Character (MkCharacter (chr i)))
         (listToPair $ convert $ encodeUtf8 (T.singleton (chr i)))
         where
           convert = flip B.foldl [] \acc -> (acc <>) . \w ->
             Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
-
-    _ -> Left $ "undefined symbol " <> s'
-  Pair _ -> Left $ "pair evaluation not implemented yet"
+    "globe" -> getEnv globe
+    "scope" -> getEnv scope
+    _ -> throwE $ "undefined symbol " <> s'
+    where
+      getEnv =
+        (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
+        use
+  Pair _ -> throwE $ "pair evaluation not implemented yet"
 
 runEval :: EvalMonad a -> EvalState -> (Either Error a, EvalState)
 runEval = runState . runExceptT

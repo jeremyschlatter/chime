@@ -16,6 +16,7 @@ default-extensions:
 - BlockArguments
 - LambdaCase
 - PatternSynonyms
+- TemplateHaskell
 - ViewPatterns
 
 ghc-options:
@@ -25,6 +26,7 @@ library:
   source-dirs: src
   dependencies:
   - bytestring
+  - lens
   - megaparsec
   - mtl
   - text
