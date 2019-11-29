@@ -52,8 +52,13 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
 character :: Parser Character
 character = character' $ char '\\' *> lexeme letterChar
 
+quotedExpression :: Parser Object
+quotedExpression = char '\'' *> expression <&> \x ->
+  listToPair [Symbol (MkSymbol ('q' :| "uote")), x]
+
 expression :: Parser Object
 expression =  (Symbol <$> symbol)
+          <|> quotedExpression
           <|> string
           <|> (Pair <$> pair)
           <|> (Character <$> character)
