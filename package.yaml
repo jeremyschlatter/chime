@@ -25,6 +25,8 @@ library:
   source-dirs: src
   dependencies:
   - megaparsec
+  - text
+  - bytestring
 
 executables:
   bel-exe:

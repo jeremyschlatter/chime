@@ -36,14 +36,15 @@ instance Repr Symbol where
 instance Repr Pair where
   repr p = maybe
       ("(" <> go p <> ")")
-      (\l -> "\"" <> foldMap characterName l <> "\"")
+      (\l -> "\"" <> foldMap escaped l <> "\"")
       (string (Pair p)) where
+    escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
     go (MkPair (car, cdr)) = repr car <> case cdr of
       Symbol Nil -> ""
       Pair p' -> " " <> go p'
       o -> " . " <> repr o
 instance Repr Character where
-  repr = ("\\" <>) . characterName
+  repr c = "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
 instance Repr Object where
   repr = \case
     Symbol s -> repr s
@@ -54,9 +55,9 @@ instance Repr Object where
 pattern Nil :: Symbol
 pattern Nil = MkSymbol ('n' :| "il")
 
-characterName:: Character -> String
-characterName =
-  (\c -> maybe (pure c) fst (find ((== c) . snd) controlChars)) .
+escapeSequence :: Character -> Maybe String
+escapeSequence =
+  (\c -> fst <$> (find ((== c) . snd) controlChars)) .
   unCharacter
 
 controlChars :: [(String, Char)]
