@@ -9,7 +9,7 @@ data Object
   | Character Character
   | Stream
 
-newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char }
+newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
 newtype Pair = MkPair { unPair :: (Object, Object) }
 newtype Character = MkCharacter { unCharacter :: Char }
 

@@ -1,5 +1,6 @@
 module Eval where
 
+import Control.Applicative
 import Control.Lens.Combinators
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
@@ -25,8 +26,35 @@ data EvalState = EvalState
  }
 $(makeLenses ''EvalState)
 
+builtins :: Environment
+builtins = first sym' <$>
+  [ ("nil", sym "nil")
+  , ("o", sym "o")
+  , ("apply", sym "apply")
+  , ("t", sym "t")
+  , ("ins", sym "nil")
+  , ("outs", sym "nil")
+  , ("chars",
+      let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
+              Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
+      in listToPair $ flip fmap [0..127] \i ->
+          Pair $ MkPair $ (,)
+            (Character (MkCharacter (chr i)))
+            (listToPair $ convert $ encodeUtf8 (T.singleton (chr i)))
+    )
+  ]
+  where
+    -- NOTE: sym and sym' are unsafe!
+    --   They error if called on the empty string.
+    --   Do not factor them out of this local scope.
+    sym = Symbol . sym'
+    sym' :: String -> Symbol
+    sym' = \case
+      [] -> error "developer error: called sym' with an empty string"
+      x:xs -> MkSymbol (x :| xs)
+
 newState :: EvalState
-newState = EvalState [] []
+newState = EvalState builtins []
 
 type EvalMonad = ExceptT Error (State EvalState)
 
@@ -37,28 +65,21 @@ readEval path =
   first errorBundlePretty .
   parse path
 
+envLookup :: Symbol -> Environment -> Maybe Object
+envLookup = lookup
+
 evaluate :: Object -> EvalMonad Object
 evaluate = \case
   c@(Character _) -> pure c
   s@Stream -> pure s
-  s@(Symbol (MkSymbol (toList -> s'))) -> case s' of
-    "nil" -> pure s
-    "o" -> pure s
-    "apply" -> pure s
-    "t" -> pure s
-    -- chars is ASCII-only for now
-    "chars" -> pure $ listToPair $ flip fmap [0..127] \i ->
-      Pair $ MkPair $ (,)
-        (Character (MkCharacter (chr i)))
-        (listToPair $ convert $ encodeUtf8 (T.singleton (chr i)))
-        where
-          convert = flip B.foldl [] \acc -> (acc <>) . \w ->
-            Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
+  (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv scope
-    "ins" -> pure (Symbol Nil)
-    "outs" -> pure (Symbol Nil)
-    _ -> throwE $ "undefined symbol " <> s'
+    _ -> do
+      scope' <- use scope
+      globe' <- use globe
+      maybe (throwE $ "undefined symbol " <> s') pure
+        (envLookup s scope' <|> envLookup s globe')
     where
       getEnv =
         (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
