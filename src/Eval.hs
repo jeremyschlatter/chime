@@ -56,6 +56,8 @@ evaluate = \case
             Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
     "globe" -> getEnv globe
     "scope" -> getEnv scope
+    "ins" -> pure (Symbol Nil)
+    "outs" -> pure (Symbol Nil)
     _ -> throwE $ "undefined symbol " <> s'
     where
       getEnv =

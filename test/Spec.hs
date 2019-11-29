@@ -76,3 +76,6 @@ spec = do
 
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
       ("scope" `isLike` varValList) "a list of (var . val) pairs"
+
+      "ins" `is` "nil"
+      "outs" `is` "nil"
