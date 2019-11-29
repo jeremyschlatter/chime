@@ -1,12 +1,12 @@
 module Eval where
 
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.State
 import Data.Bifunctor
 import Data.Bits
 import Data.Bool
 import qualified Data.ByteString as B
 import Data.Char
-import Data.Functor
 import Data.List.NonEmpty
 import Data.Text as T
 import Data.Text.Encoding
@@ -16,7 +16,12 @@ import Parse (parse, errorBundlePretty)
 
 type Error = String
 
-type EvalMonad = Except Error
+type EvalState = Int
+
+newState :: EvalState
+newState = 0
+
+type EvalMonad = ExceptT Error (State EvalState)
 
 readEval :: FilePath -> String -> EvalMonad Object
 readEval path =
@@ -46,15 +51,18 @@ evaluate = except . \case
     _ -> Left $ "undefined symbol " <> s'
   Pair _ -> Left $ "pair evaluation not implemented yet"
 
-runEval :: EvalMonad a -> Either Error a
-runEval = runExcept
+runEval :: EvalMonad a -> EvalState -> (Either Error a, EvalState)
+runEval = runState . runExceptT
+
+readRunEval :: FilePath -> String -> EvalState -> (Either Error Object, EvalState)
+readRunEval p c s = flip runEval s $ readEval p c
 
 repl :: IO ()
-repl = go (pure ()) where
-  go m = do
+repl = go newState where
+  go s = do
     putStr "> "
     line <- getLine
-    let m' = m *> readEval "repl" line
-    putStrLn $ either id repr (runEval m')
+    let (x, s') = readRunEval "repl" line s
+    putStrLn $ either id repr x
     -- loop, resetting state if there was an error
-    go $ catchE (void m') (const m)
+    go $ either (const s) (const s') x
