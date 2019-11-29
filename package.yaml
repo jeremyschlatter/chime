@@ -17,6 +17,9 @@ default-extensions:
 - LambdaCase
 - PatternSynonyms
 
+ghc-options:
+- -Wall
+
 library:
   source-dirs: src
   dependencies:

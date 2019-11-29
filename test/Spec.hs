@@ -2,7 +2,8 @@ module Main where
 
 import Test.Hspec
 
-import Bel
+import Data
+import Parse
 
 main :: IO ()
 main = hspec spec
