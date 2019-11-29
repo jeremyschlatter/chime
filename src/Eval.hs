@@ -42,7 +42,9 @@ builtins = first sym' <$>
             (Character (MkCharacter (chr i)))
             (listToPair $ convert $ encodeUtf8 (T.singleton (chr i)))
     )
-  ]
+  ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
+    [ "id"
+    ]
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -65,8 +67,12 @@ readEval path =
   first errorBundlePretty .
   parse path
 
-envLookup :: Symbol -> Environment -> Maybe Object
-envLookup = lookup
+envLookup :: Symbol -> EvalMonad Object
+envLookup s = do
+  scope' <- use scope
+  globe' <- use globe
+  maybe (throwE $ "undefined symbol: " <> repr s) pure
+    (lookup s scope' <|> lookup s globe')
 
 pattern Sym       :: Char -> String -> Object
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
@@ -78,17 +84,19 @@ evaluate = \case
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv scope
-    _ -> do
-      scope' <- use scope
-      globe' <- use globe
-      maybe (throwE $ "undefined symbol " <> s') pure
-        (envLookup s scope' <|> envLookup s globe')
+    _ -> envLookup s
     where
       getEnv =
         (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
         use
   (properList -> (Just l)) -> case l of
     [Sym 'q' "uote", a] -> pure a
+    Symbol f : _args -> envLookup f >>= \case
+      (properList -> (Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol (toList -> p))])) ->
+        case p of
+          "id" -> throwE $ "id not implemented yet"
+          s -> throwE $ "no such primitive: " <> s
+      _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
   _ -> throwE $ "I don't know how to evaluate this yet"
 

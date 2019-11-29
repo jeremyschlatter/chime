@@ -81,3 +81,5 @@ spec = do
       "outs" `is` "nil"
       "(quote a)" `is` "a"
       "'a" `is` "a"
+      "(id 'a 'a)" `is` "t"
+      "(id 'a 'b)" `is` "nil"
