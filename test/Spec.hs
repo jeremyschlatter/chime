@@ -31,5 +31,7 @@ spec = do
       "((a b c))" `is` "((a b c))"
       "(nil)" `is` "(nil)"
       "(a b . c)" `is` "(a b . c)"
+      "(\\h \\e \\l \\l \\o)" `is` "\"hello\""
+      "\"hello\"" `is` "\"hello\""
     it "parses and prints other examples" do
       "( )" `is` "nil"
