@@ -15,7 +15,7 @@ import Text.Megaparsec.Char hiding (string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error (errorBundlePretty)
 
-import Data
+import Data hiding (string)
 
 type Parser = Parsec Void String
 

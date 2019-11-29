@@ -1,6 +1,5 @@
 module Data where
 
-import Control.Monad
 import Data.List
 import Data.List.NonEmpty
 
@@ -14,22 +13,21 @@ newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char }
 newtype Pair = MkPair { unPair :: (Object, Object) }
 newtype Character = MkCharacter { unCharacter :: Char }
 
-pairToList :: Pair -> [Object]
-pairToList (MkPair (car, cdr)) = car : case cdr of
-  Symbol Nil -> []
-  Pair p -> pairToList p
-  o -> [o]
+properList :: Object -> Maybe [Object]
+properList = \case
+  Symbol Nil -> Just []
+  Pair (MkPair (car, cdr)) -> (car :) <$> properList cdr
+  _ -> Nothing
+
+string :: Object -> Maybe [Character]
+string x = properList x >>= traverse \case
+    Character c -> Just c
+    _ -> Nothing
 
 listToPair :: [Object] -> Object
 listToPair = \case
   [] -> Symbol Nil
   x:xs -> Pair (MkPair (x, listToPair xs))
-
-properList :: Pair -> Bool
-properList (MkPair (_, cdr)) = case cdr of
-  Symbol Nil -> True
-  Pair p -> properList p
-  _ -> False
 
 class Repr x where
   repr :: x -> String
@@ -39,12 +37,7 @@ instance Repr Pair where
   repr p = maybe
       ("(" <> go p <> ")")
       (\l -> "\"" <> foldMap characterName l <> "\"")
-      charList where
-    charList :: Maybe [Character]
-    charList = guard (properList p) *>
-      flip traverse (pairToList p) \case
-        Character c -> Just c
-        _ -> Nothing
+      (string (Pair p)) where
     go (MkPair (car, cdr)) = repr car <> case cdr of
       Symbol Nil -> ""
       Pair p' -> " " <> go p'

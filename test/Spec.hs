@@ -1,10 +1,11 @@
 module Main where
 
+import Test.HUnit.Base
 import Test.Hspec
 
 import Data
 import Eval
-import Parse
+import Parse hiding (string)
 
 main :: IO ()
 main = hspec spec
@@ -15,13 +16,16 @@ roundTripShouldBe a b =
   either (expectationFailure . ((a <> ": ") <>) . errorBundlePretty) ((`shouldBe` b) . repr) $
   parse "test case" a
 
+eval :: String -> IO Object
+eval s =
+  either
+    ((fmap undefined) . expectationFailure . ((s <> ": ") <>))
+    pure
+    (readEval "test case" s)
+
 -- repl then compare
 evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b =
-  either
-    (expectationFailure . ((a <> ": ") <>))
-    ((`shouldBe` b) . repr)
-    (readEval "test case" a)
+evalShouldBe a b = eval a >>= (`shouldBe` b) . repr
 
 spec :: Spec
 spec = do
@@ -55,3 +59,14 @@ spec = do
       "nil" `is` "nil"
       "o" `is` "o"
       "apply" `is` "apply"
+
+      -- chars should be a list of all characters
+      eval "chars" >>= \x ->
+        flip maybe (const $ pure ())
+          (assertEqual
+            "chars should evaluate to" "a list of pairs of (<character> . <binary representation>)"
+            (repr x)
+          ) $
+            properList x >>= traverse \case
+              Pair (MkPair (Character _, s)) -> string s
+              _ -> Nothing
