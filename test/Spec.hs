@@ -73,9 +73,9 @@ spec = do
       let varValList = \x -> properList x >>= traverse \case
                           Pair (MkPair (Symbol _, _)) -> Just ()
                           _ -> Nothing
-
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
       ("scope" `isLike` varValList) "a list of (var . val) pairs"
 
       "ins" `is` "nil"
       "outs" `is` "nil"
+      "(quote a)" `is` "a"

@@ -84,7 +84,9 @@ evaluate = \case
       getEnv =
         (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
         use
-  Pair _ -> throwE $ "pair evaluation not implemented yet"
+  Pair p -> case p of
+    MkPair (Symbol (MkSymbol ('q' :| "uote")), (Pair (MkPair (a, Symbol Nil)))) -> pure a
+    _ -> throwE $ "the only pair I know how to evaluate right now is (quote _)"
 
 runEval :: EvalMonad a -> EvalState -> (Either Error a, EvalState)
 runEval = runState . runExceptT
