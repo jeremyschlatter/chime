@@ -129,7 +129,7 @@ evaluate = \case
                 <> rep <> " is not a non-empty string."
             "nom" -> prim1 $ \case
               Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
-              x -> repr x >>= \rep -> throwE $ "sym is only defined on symbols. "
+              x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
                 <> rep <> " is not a symbol."
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
