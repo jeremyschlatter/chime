@@ -99,3 +99,6 @@ spec = do
       "(car '(a b))" `is` "a"
       "(cdr '(a . b))" `is` "b"
       "(cdr '(a b))" `is` "(b)"
+      "(type 'a)" `is` "symbol"
+      "(type '(a))" `is` "pair"
+      "(type \\a)" `is` "char"

@@ -46,6 +46,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     , "join"
     , "car"
     , "cdr"
+    , "type"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -99,6 +100,11 @@ evaluate = \case
             "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
             "car" -> carAndCdr fst
             "cdr" -> carAndCdr snd
+            "type" -> prim1 $ pure . Symbol . MkSymbol . \case
+              Symbol _ -> 's' :| "ymbol"
+              Character _ -> 'c' :| "har"
+              Pair _ -> 'p' :| "air"
+              Stream -> 's' :| "tream"
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
                   prim1 = primitive1 p1 args
