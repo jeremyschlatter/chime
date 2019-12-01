@@ -44,6 +44,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
   ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
     [ "id"
     , "join"
+    , "car"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -95,11 +96,36 @@ evaluate = \case
                 (Pair ra, Pair rb) -> ra == rb
                 _ -> False
             "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
+            "car" -> prim1 $ \case
+              Symbol Nil -> pure $ Symbol Nil
+              Pair ra -> readRef ra <&> \(MkPair (car, _)) -> car
+              o -> repr o >>= \s -> throwE $
+                "car is only defined on pairs and nil. " <> s <> " is neither of those."
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
+                  prim1 = primitive1 p1 args
         _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
+
+tooManyParams :: NonEmpty Char -> [a] -> Int -> EvalMonad b
+tooManyParams nm args n =
+  throwE $ "Too many parameters in call to " <> toList nm
+    <> ". Got " <> show (length args) <> ", want at most " <> show n <> "."
+
+primitive1
+  :: NonEmpty Char
+  -> [Object IORef]
+  -> (Object IORef -> EvalMonad (Object IORef))
+  -> EvalMonad (Object IORef)
+primitive1 nm args f = case args of
+  [] -> call (Symbol Nil)
+  [a] -> call a
+  _ -> tooManyParams nm args 1
+  where
+    call a = do
+      a' <- evaluate a
+      f a'
 
 primitive2
   :: NonEmpty Char
@@ -110,8 +136,7 @@ primitive2 nm args f = case args of
   [] -> call (Symbol Nil) (Symbol Nil)
   [a] -> call a (Symbol Nil)
   [a, b] -> call a b
-  _ -> throwE $ "Too many parameters in call to " <> toList nm
-    <> ". Got " <> show (Prelude.length args) <> ", want at most 2."
+  _ -> tooManyParams nm args 2
   where
     call a b = do
       a' <- evaluate a

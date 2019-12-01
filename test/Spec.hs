@@ -95,3 +95,5 @@ spec = do
       "(join 'a 'b)" `is` "(a . b)"
       "(join 'a)" `is` "(a)"
       "(id (join 'a 'b) (join 'a 'b))" `is` "nil"
+      "(car '(a . b))" `is` "a"
+      "(car '(a b))" `is` "a"
