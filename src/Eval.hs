@@ -45,6 +45,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     [ "id"
     , "join"
     , "car"
+    , "cdr"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -96,14 +97,16 @@ evaluate = \case
                 (Pair ra, Pair rb) -> ra == rb
                 _ -> False
             "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
-            "car" -> prim1 $ \case
-              Symbol Nil -> pure $ Symbol Nil
-              Pair ra -> readRef ra <&> \(MkPair (car, _)) -> car
-              o -> repr o >>= \s -> throwE $
-                "car is only defined on pairs and nil. " <> s <> " is neither of those."
+            "car" -> carAndCdr fst
+            "cdr" -> carAndCdr snd
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
                   prim1 = primitive1 p1 args
+                  carAndCdr fn = prim1 $ \case
+                    Symbol Nil -> pure $ Symbol Nil
+                    Pair ra -> readRef ra <&> \(MkPair tup) -> fn tup
+                    o -> repr o >>= \s -> throwE $ toList p1
+                      <> " is only defined on pairs and nil. " <> s <> " is neither of those."
         _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
