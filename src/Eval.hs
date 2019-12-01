@@ -7,6 +7,7 @@ import Control.Lens.Operators
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import qualified Data.ByteString as B
+import Data.List.NonEmpty (nonEmpty)
 import Data.Text as T hiding (length)
 import Data.Text.Encoding
 import Control.Monad.Trans.Class
@@ -60,6 +61,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     , "type"
     , "xar"
     , "xdr"
+    , "sym"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -98,7 +100,7 @@ evaluate = \case
       getEnv =
         (>>= (listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol)))) .
          use
-  x -> properList x >>= \case
+  x' -> properList x' >>= \case
     Just l -> case l of
       [Sym 'q' "uote", a] -> pure a
       Symbol f : args -> envLookup f >>= properList >>= \case
@@ -120,6 +122,10 @@ evaluate = \case
               Stream -> 's' :| "tream"
             "xar" -> xarAndXdr first
             "xdr" -> xarAndXdr second
+            "sym" -> prim1 $ \x -> string x >>= \s' -> case s' >>= nonEmpty of
+              Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
+              Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
+                <> rep <> " is not a non-empty string."
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
                   prim1 = primitive1 p1 args
@@ -134,7 +140,9 @@ evaluate = \case
                       <> " is only defined when the first argument is a pair. "
                       <> s <> " is not a pair."
         _ -> throwE $ "I don't know how to evaluate this yet"
-      _ -> throwE $ "I don't know how to evaluate this yet"
+      _ -> string x' >>= \case
+        Just _ -> pure x' -- x' is a string, and strings evaluate to themselves
+        Nothing -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
 
 tooManyParams :: NonEmpty Char -> [a] -> Int -> EvalMonad b

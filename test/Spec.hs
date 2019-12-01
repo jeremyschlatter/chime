@@ -103,3 +103,4 @@ spec = do
       "(type '(a))" `is` "pair"
       "(type \\a)" `is` "char"
       -- @incomplete add tests for xar and xdr
+      "(sym \"foo\")" `is` "foo"
