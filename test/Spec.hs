@@ -1,9 +1,7 @@
 module Main where
 
-import Control.Monad
+import BasePrelude
 import Control.Monad.Trans.Maybe
-import Data.Functor
-import Data.IORef
 import Test.HUnit.Base
 import Test.Hspec
 

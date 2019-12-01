@@ -1,18 +1,12 @@
 module Eval where
 
-import Control.Applicative
+import BasePrelude hiding (evaluate, getEnv)
 import Control.Lens.Combinators
 import Control.Lens.Operators
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
-import Data.Bifunctor
-import Data.Bits
-import Data.Bool
 import qualified Data.ByteString as B
-import Data.Char
-import Data.IORef
-import Data.List.NonEmpty
-import Data.Text as T
+import Data.Text as T hiding (length)
 import Data.Text.Encoding
 
 import Common

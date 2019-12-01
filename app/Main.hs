@@ -1,5 +1,6 @@
 module Main where
 
+import BasePrelude
 import System.IO
 
 import Eval

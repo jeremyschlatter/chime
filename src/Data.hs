@@ -1,12 +1,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Data where
 
+import BasePrelude
 import Control.Monad.Trans.Class
-import Data.Functor
-import Data.Functor.Identity
-import Data.IORef
-import Data.List
-import Data.List.NonEmpty
 
 -- MonadRef models mutable variables.
 -- Mutable variables are a core part of the Bel data model.

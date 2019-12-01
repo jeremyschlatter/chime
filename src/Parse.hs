@@ -3,12 +3,8 @@ module Parse
   , module Text.Megaparsec.Error
   ) where
 
-import Control.Applicative hiding (many, some)
-import Control.Monad
-import Data.Functor
-import Data.Functor.Identity
+import BasePrelude hiding (try, many)
 import Data.List.NonEmpty
-import Data.Void
 
 import Text.Megaparsec hiding (parse)
 import qualified Text.Megaparsec as M (parse)
