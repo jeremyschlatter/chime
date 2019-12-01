@@ -1,5 +1,9 @@
 module Main where
 
+import Control.Monad
+import Control.Monad.Trans.Maybe
+import Data.Functor
+import Data.IORef
 import Test.HUnit.Base
 import Test.Hspec
 
@@ -10,26 +14,29 @@ import Parse hiding (string)
 main :: IO ()
 main = hspec spec
 
--- parse then print then compare
+--- parse then print then compare
 roundTripShouldBe :: String -> String -> Expectation
 roundTripShouldBe a b =
-  either (expectationFailure . ((a <> ": ") <>) . errorBundlePretty) ((`shouldBe` b) . repr) $
-  parse "test case" a
-
-eval :: String -> IO Object
-eval s =
   either
-    ((fmap undefined) . expectationFailure . ((s <> ": ") <>))
-    pure
-    (fst $ readRunEval "test case" s newState)
+    (expectationFailure . ((a <> ": ") <>) . errorBundlePretty)
+    (>>= repr >=> (`shouldBe` b))
+    (parse @IO "test case" a)
+
+eval :: String -> IO (Object IORef)
+eval s =
+   fst <$> (builtinsIO >>= readThenRunEval "test case" s) >>=
+     either
+       (\e -> undefined <$> (expectationFailure $ s <> ": " <> e))
+       pure
 
 -- repl then compare
 evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b = eval a >>= (`shouldBe` b) . repr
+evalShouldBe a b = eval a >>= (repr >=> (`shouldBe` b))
 
-evalShouldBeLike :: String -> (Object -> Maybe a) -> String -> Expectation
-evalShouldBeLike s f desc = eval s >>= \x ->
-  maybe (assertEqual (s <> " should evaluate to") desc (repr x)) (const $ pure ()) (f x)
+evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
+evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
+  runMaybeT (f x) >>=
+    maybe (assertEqual (s <> " should evaluate to") desc rep) (const $ pure ())
 
 spec :: Spec
 spec = do
@@ -58,7 +65,7 @@ spec = do
       "( )" `is` "nil"
 
   describe "evaluation" do
-    let is = evalShouldBe 
+    let is = evalShouldBe
     let isLike = evalShouldBeLike
     it "evaluates examples from the spec" do
       "t" `is` "t"
@@ -66,14 +73,18 @@ spec = do
       "o" `is` "o"
       "apply" `is` "apply"
 
-      ("chars" `isLike` \x -> properList x >>= traverse \case
-          Pair (MkPair (Character _, s)) -> string s
-          _ -> Nothing
+      ("chars" `isLike` \x -> MaybeT (properList x) >>= traverse \case
+         Pair r -> readRef r >>= \case
+           MkPair (Character _, s) -> string s
+           _ -> pure Nothing
+         _ -> pure Nothing
        ) "a list of pairs of (<character> . <binary representation>)"
 
-      let varValList = \x -> properList x >>= traverse \case
-                          Pair (MkPair (Symbol _, _)) -> Just ()
-                          _ -> Nothing
+      let varValList = \x -> MaybeT (properList x) >>= traverse \case
+                          Pair r -> readRef r <&> \case
+                            MkPair (Symbol _, _) -> Just ()
+                            _ -> Nothing
+                          _ -> pure Nothing
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
       ("scope" `isLike` varValList) "a list of (var . val) pairs"
 

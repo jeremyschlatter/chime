@@ -1,56 +1,114 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Data where
 
+import Control.Monad.Trans.Class
+import Data.Functor
+import Data.Functor.Identity
+import Data.IORef
 import Data.List
 import Data.List.NonEmpty
 
-data Object
+-- MonadRef models mutable variables.
+-- Mutable variables are a core part of the Bel data model.
+-- During evaluation, m will be IO. But we don't need or want
+-- the full power of IO here, so we restrict our interface to
+-- reading and writing references.
+class Monad m => MonadRef m where
+  type Ref m :: * -> *
+  readRef :: Ref m a -> m a
+  newRef :: a -> m (Ref m a)
+
+instance MonadRef IO where
+  type Ref IO = IORef
+  readRef = readIORef
+  newRef = newIORef
+
+instance MonadRef Identity where
+  type Ref Identity = Identity
+  readRef = id
+  newRef = Identity . Identity
+
+instance (MonadRef m, MonadTrans t, Monad (t m)) => MonadRef (t m) where
+  type Ref (t m) = Ref m
+  readRef = lift . readRef
+  newRef = lift . newRef
+
+data Object r
   = Symbol Symbol
-  | Pair Pair
+  | Pair (r (Pair r))
   | Character Character
   | Stream
 
+refSwap :: (MonadRef a, MonadRef b, ra ~ Ref a, rb ~ Ref b) => Object ra -> a (b (Object rb))
+refSwap = \case
+  Symbol s -> pure $ pure $ Symbol s
+  Character c -> pure $ pure $ Character c
+  Stream -> pure $ pure Stream
+  Pair r -> do
+    MkPair (car, cdr) <- readRef r
+    car' <- refSwap car
+    cdr' <- refSwap cdr
+    pure $ do
+      car'' <- car'
+      cdr'' <- cdr'
+      Pair <$> (newRef $ MkPair (car'', cdr''))
+
 newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
-newtype Pair = MkPair { unPair :: (Object, Object) }
-newtype Character = MkCharacter { unCharacter :: Char }
+newtype Pair m = MkPair { unPair :: (Object m, Object m) }
+newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
 
-properList :: Object -> Maybe [Object]
+properList :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])
 properList = \case
-  Symbol Nil -> Just []
-  Pair (MkPair (car, cdr)) -> (car :) <$> properList cdr
-  _ -> Nothing
+  Symbol Nil -> pure (Just [])
+  Pair ref -> readRef ref >>= \(MkPair (car, cdr)) -> fmap (car :) <$> properList cdr
+  _ -> pure Nothing
 
-string :: Object -> Maybe [Character]
-string x = properList x >>= traverse \case
+string :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Character])
+string x = properList x <&> (=<<) (traverse \case
     Character c -> Just c
     _ -> Nothing
+  )
 
-listToPair :: [Object] -> Object
+listToPair :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
 listToPair = \case
-  [] -> Symbol Nil
-  x:xs -> Pair (MkPair (x, listToPair xs))
+  [] -> pure $ Symbol Nil
+  x:xs -> do
+    car <- x
+    cdr <- listToPair xs
+    Pair <$> newRef (MkPair (car, cdr))
 
-class Repr x where
-  repr :: x -> String
-instance Repr Symbol where
-  repr = toList . unSymbol
-instance Repr Pair where
-  repr p = maybe
-      ("(" <> go p <> ")")
+class Repr r x where
+  repr :: (MonadRef m, r ~ Ref m) => x -> m String
+instance Repr r Symbol where
+  repr = pure . toList . unSymbol
+instance Repr r' (r' (Pair r')) where
+  repr :: forall r m. (MonadRef m, r ~ Ref m) => r (Pair r) -> m String
+  repr ref = do
+    mb <- string (Pair ref)
+    s <- go ref
+    pure $ maybe
+      ("(" <> s <> ")")
       (\l -> "\"" <> foldMap escaped l <> "\"")
-      (string (Pair p)) where
-    escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
-    go (MkPair (car, cdr)) = repr car <> case cdr of
-      Symbol Nil -> ""
-      Pair p' -> " " <> go p'
-      o -> " . " <> repr o
-instance Repr Character where
-  repr c = "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
-instance Repr Object where
+      mb
+    where
+      escaped :: Character -> String
+      escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
+      go :: (r (Pair r)) -> m String
+      go ref' = do
+        MkPair (car, cdr) <- readRef ref'
+        car' <- repr car
+        (car' <>) <$> case cdr of
+          Symbol Nil -> pure ""
+          Pair p' -> (" " <>) <$> go p'
+          o -> (" . " <>) <$> repr o
+instance Repr m Character where
+  repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
+instance Repr m (Object m) where
   repr = \case
     Symbol s -> repr s
     Pair p -> repr p
     Character c -> repr c
-    Stream -> "<stream>"
+    Stream -> pure "<stream>"
 
 pattern Nil :: Symbol
 pattern Nil = MkSymbol ('n' :| "il")

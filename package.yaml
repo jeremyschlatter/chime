@@ -14,9 +14,18 @@ dependencies:
 
 default-extensions:
 - BlockArguments
+- FlexibleContexts
+- FlexibleInstances
+- InstanceSigs
 - LambdaCase
+- MultiParamTypeClasses
 - PatternSynonyms
+- RankNTypes
+- ScopedTypeVariables
 - TemplateHaskell
+- TupleSections
+- TypeApplications
+- TypeFamilies
 - ViewPatterns
 
 ghc-options:
@@ -55,3 +64,4 @@ tests:
     - bel
     - hspec
     - HUnit
+    - transformers

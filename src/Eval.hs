@@ -2,6 +2,7 @@ module Eval where
 
 import Control.Applicative
 import Control.Lens.Combinators
+import Control.Lens.Operators
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Data.Bifunctor
@@ -9,16 +10,20 @@ import Data.Bits
 import Data.Bool
 import qualified Data.ByteString as B
 import Data.Char
+import Data.IORef
 import Data.List.NonEmpty
 import Data.Text as T
 import Data.Text.Encoding
 
+import Common
 import Data
 import Parse (parse, errorBundlePretty)
 
 type Error = String
 
-type Environment = [(Symbol, Object)]
+type Environment = [(Symbol, (Object IORef))]
+
+type EvalMonad = ExceptT Error (StateT EvalState IO)
 
 data EvalState = EvalState
  { _globe :: Environment
@@ -26,8 +31,8 @@ data EvalState = EvalState
  }
 $(makeLenses ''EvalState)
 
-builtins :: Environment
-builtins = first sym' <$>
+builtins :: EvalMonad ()
+builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
   [ ("nil", sym "nil")
   , ("o", sym "o")
   , ("apply", sym "apply")
@@ -36,11 +41,11 @@ builtins = first sym' <$>
   , ("outs", sym "nil")
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
-              Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
-      in listToPair $ flip fmap [0..127] \i ->
-          Pair $ MkPair $ (,)
-            (Character (MkCharacter (chr i)))
-            (listToPair $ convert $ encodeUtf8 (T.singleton (chr i)))
+              pure . Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
+      in listToPair $ flip fmap [0..127] \i -> do
+           let car = Character $ MkCharacter $ chr i
+           cdr <- listToPair $ convert $ encodeUtf8 $ T.singleton $ chr i
+           Pair <$> (newRef $ MkPair (car, cdr))
     )
   ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
     [ "id"
@@ -49,35 +54,28 @@ builtins = first sym' <$>
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
     --   Do not factor them out of this local scope.
-    sym = Symbol . sym'
+    sym = pure . Symbol . sym'
     sym' :: String -> Symbol
     sym' = \case
       [] -> error "developer error: called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
-newState :: EvalState
-newState = EvalState builtins []
+emptyState :: EvalState
+emptyState = EvalState [] []
 
-type EvalMonad = ExceptT Error (State EvalState)
-
-readEval :: FilePath -> String -> EvalMonad Object
-readEval path =
-  (>>= evaluate) .
-  except .
-  first errorBundlePretty .
-  parse path
-
-envLookup :: Symbol -> EvalMonad Object
+envLookup :: Symbol -> EvalMonad (Object IORef)
 envLookup s = do
   scope' <- use scope
   globe' <- use globe
-  maybe (throwE $ "undefined symbol: " <> repr s) pure
+  maybe
+    (throwE . ("undefined symbol: " <>) =<< repr s)
+    pure
     (lookup s scope' <|> lookup s globe')
 
-pattern Sym       :: Char -> String -> Object
+pattern Sym       :: Char -> String -> Object s
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
 
-evaluate :: Object -> EvalMonad Object
+evaluate :: Object IORef -> EvalMonad (Object IORef)
 evaluate = \case
   c@(Character _) -> pure c
   s@Stream -> pure s
@@ -87,31 +85,69 @@ evaluate = \case
     _ -> envLookup s
     where
       getEnv =
-        (fmap (listToPair . (fmap (Pair . MkPair . first Symbol)))) .
-        use
-  (properList -> (Just l)) -> case l of
-    [Sym 'q' "uote", a] -> pure a
-    Symbol f : _args -> envLookup f >>= \case
-      (properList -> (Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol (toList -> p))])) ->
-        case p of
-          "id" -> throwE $ "id not implemented yet"
-          s -> throwE $ "no such primitive: " <> s
+        (>>= (listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol)))) .
+         use
+  x -> properList x >>= \case
+    Just l -> case l of
+      [Sym 'q' "uote", a] -> pure a
+      Symbol f : args -> envLookup f >>= properList >>= \case
+        Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
+          case p of
+            "id" -> prim2 p1 args $ pure . fromBool .: curry \case
+                (Symbol a, Symbol b) -> a == b
+                (Character a, Character b) -> a == b
+                (Stream, Stream) -> False -- @incomplete: what should this be?
+                (Pair ra, Pair rb) -> ra == rb
+                _ -> False
+            s -> throwE $ "no such primitive: " <> s
+        _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
-  _ -> throwE $ "I don't know how to evaluate this yet"
 
-runEval :: EvalMonad a -> EvalState -> (Either Error a, EvalState)
-runEval = runState . runExceptT
+prim2
+  :: NonEmpty Char
+  -> [Object IORef]
+  -> (Object IORef -> Object IORef -> EvalMonad (Object IORef))
+  -> EvalMonad (Object IORef)
+prim2 nm args f = case args of
+  [] -> call (Symbol Nil) (Symbol Nil)
+  [a] -> call a (Symbol Nil)
+  [a, b] -> call a b
+  _ -> throwE $ "Too many parameters in call to " <> toList nm
+    <> ". Got " <> show (Prelude.length args) <> ", want at most 2."
+  where
+    call a b = do
+      a' <- evaluate a
+      b' <- evaluate b
+      f a' b'
 
-readRunEval :: FilePath -> String -> EvalState -> (Either Error Object, EvalState)
-readRunEval p c s = flip runEval s $ readEval p c
+fromBool :: Bool -> Object r
+fromBool = \case
+  True -> Sym 't' ""
+  False -> Symbol Nil
+
+runEval :: EvalMonad a -> EvalState -> IO (Either Error a, EvalState)
+runEval = runStateT . runExceptT
+
+readThenEval :: FilePath -> String -> EvalMonad (Object IORef)
+readThenEval path =
+  (>>= evaluate) .
+  either (except . Left . errorBundlePretty) id .
+  parse path
+
+readThenRunEval
+  :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
+readThenRunEval p c s = flip runEval s $ readThenEval p c
+
+builtinsIO :: IO EvalState
+builtinsIO = snd <$> runEval builtins emptyState
 
 repl :: IO ()
-repl = go newState where
+repl = builtinsIO >>= go where
   go s = do
     putStr "> "
     line <- getLine
-    let (x, s') = readRunEval "repl" line s
-    putStrLn $ either id repr x
+    (x, s') <- readThenRunEval "repl" line s
+    putStrLn =<< either pure repr x
     -- loop, resetting state if there was an error
     go $ either (const s) (const s') x

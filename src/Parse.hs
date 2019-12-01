@@ -6,6 +6,7 @@ module Parse
 import Control.Applicative hiding (many, some)
 import Control.Monad
 import Data.Functor
+import Data.Functor.Identity
 import Data.List.NonEmpty
 import Data.Void
 
@@ -18,6 +19,9 @@ import Text.Megaparsec.Error (errorBundlePretty)
 import Data hiding (string)
 
 type Parser = Parsec Void String
+
+listToPair' :: [Object Identity] -> Object Identity
+listToPair' = runIdentity . listToPair . (fmap Identity)
 
 sc :: Parser ()
 sc = L.space space1 empty empty
@@ -34,13 +38,13 @@ symbol = (lexeme $ some1 letterChar <&> MkSymbol) <|> try (lexLit "(" *> lexLit 
 surround :: String -> String -> Parser a -> Parser a
 surround a b x = lexLit a *> x <* lexLit b
 
-string :: Parser Object
-string = surround "\"" "\"" (listToPair . (fmap Character) <$> many (character' (lexeme letterChar)))
+string :: Parser (Object Identity)
+string = surround "\"" "\"" (listToPair' . (fmap Character) <$> many (character' (lexeme letterChar)))
 
-pair :: Parser Pair
+pair :: Parser (Pair Identity)
 pair = surround "(" ")" pair' where
   pair' = liftA2 (curry MkPair) expression $
-    (lexLit "." *> expression) <|> (Pair <$> pair') <|> (pure $ Symbol Nil)
+    (lexLit "." *> expression) <|> (Pair . Identity <$> pair') <|> (pure $ Symbol Nil)
 
 character' :: Parser Char -> Parser Character
 character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescaped where
@@ -52,16 +56,17 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
 character :: Parser Character
 character = character' $ char '\\' *> lexeme letterChar
 
-quotedExpression :: Parser Object
+quotedExpression :: Parser (Object Identity)
 quotedExpression = char '\'' *> expression <&> \x ->
-  listToPair [Symbol (MkSymbol ('q' :| "uote")), x]
+  listToPair' [Symbol (MkSymbol ('q' :| "uote")), x]
 
-expression :: Parser Object
+expression :: Parser (Object Identity)
 expression =  (Symbol <$> symbol)
           <|> quotedExpression
           <|> string
-          <|> (Pair <$> pair)
+          <|> (Pair . Identity <$> pair)
           <|> (Character <$> character)
 
-parse :: FilePath -> String -> Either (ParseErrorBundle String Void) Object
-parse = M.parse (expression <* eof)
+parse :: (MonadRef m, r ~ Ref m)
+  => FilePath -> String -> Either (ParseErrorBundle String Void) (m (Object r))
+parse = M.parse (runIdentity . refSwap <$> expression <* eof)
