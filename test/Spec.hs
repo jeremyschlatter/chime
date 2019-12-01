@@ -107,6 +107,7 @@ spec = do
       -- @incomplete add tests for xar and xdr
       "(sym \"foo\")" `is` "foo"
       "(nom 'foo)" `is` "\"foo\""
+      "(lit a)" `is` "(lit a)"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""

@@ -107,6 +107,7 @@ evaluate = \case
         let form1 = specialForm1 f args
         in case toList f of
           "quote" -> form1 pure
+          "lit" -> pure x'
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
