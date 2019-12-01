@@ -108,6 +108,7 @@ spec = do
       "(sym \"foo\")" `is` "foo"
       "(nom 'foo)" `is` "\"foo\""
       "(lit a)" `is` "(lit a)"
+      "car" `is` "(lit prim car)"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""
