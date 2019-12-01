@@ -103,57 +103,74 @@ evaluate = \case
          use
   x' -> properList x' >>= \case
     Just l -> case l of
-      [Sym 'q' "uote", a] -> pure a
-      Symbol f : args -> envLookup f >>= properList >>= \case
-        Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
-          case p of
-            "id" -> prim2 $ pure . fromBool .: curry \case
-                (Symbol a, Symbol b) -> a == b
-                (Character a, Character b) -> a == b
-                (Stream, Stream) -> False -- @incomplete: what should this be?
-                (Pair ra, Pair rb) -> ra == rb
-                _ -> False
-            "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
-            "car" -> carAndCdr fst
-            "cdr" -> carAndCdr snd
-            "type" -> prim1 $ pure . Symbol . MkSymbol . \case
-              Symbol _ -> 's' :| "ymbol"
-              Character _ -> 'c' :| "har"
-              Pair _ -> 'p' :| "air"
-              Stream -> 's' :| "tream"
-            "xar" -> xarAndXdr first
-            "xdr" -> xarAndXdr second
-            "sym" -> prim1 $ \x -> string x >>= \s' -> case s' >>= nonEmpty of
-              Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
-              Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
-                <> rep <> " is not a non-empty string."
-            "nom" -> prim1 $ \case
-              Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
-              x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
-                <> rep <> " is not a symbol."
-            s -> throwE $ "no such primitive: " <> s
-            where prim2 = primitive2 p1 args
-                  prim1 = primitive1 p1 args
-                  carAndCdr fn = prim1 $ \case
-                    Symbol Nil -> pure $ Symbol Nil
-                    Pair ra -> readRef ra <&> \(MkPair tup) -> fn tup
-                    o -> repr o >>= \s -> throwE $ toList p1
-                      <> " is only defined on pairs and nil. " <> s <> " is neither of those."
-                  xarAndXdr which = prim2 $ curry \case
-                    (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
-                    (o, _) -> repr o >>= \s -> throwE $ toList p1
-                      <> " is only defined when the first argument is a pair. "
-                      <> s <> " is not a pair."
-        _ -> throwE $ "I don't know how to evaluate this yet"
+      Symbol (MkSymbol f) : args ->
+        let form1 = specialForm1 f args
+        in case toList f of
+          "quote" -> form1 pure
+          _ -> envLookup (MkSymbol f) >>= properList >>= \case
+            Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
+              case p of
+                "id" -> prim2 $ pure . fromBool .: curry \case
+                    (Symbol a, Symbol b) -> a == b
+                    (Character a, Character b) -> a == b
+                    (Stream, Stream) -> False -- @incomplete: what should this be?
+                    (Pair ra, Pair rb) -> ra == rb
+                    _ -> False
+                "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
+                "car" -> carAndCdr fst
+                "cdr" -> carAndCdr snd
+                "type" -> prim1 $ pure . Symbol . MkSymbol . \case
+                  Symbol _ -> 's' :| "ymbol"
+                  Character _ -> 'c' :| "har"
+                  Pair _ -> 'p' :| "air"
+                  Stream -> 's' :| "tream"
+                "xar" -> xarAndXdr first
+                "xdr" -> xarAndXdr second
+                "sym" -> prim1 $ \x -> string x >>= \s' -> case s' >>= nonEmpty of
+                  Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
+                  Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
+                    <> rep <> " is not a non-empty string."
+                "nom" -> prim1 $ \case
+                  Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
+                  x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
+                    <> rep <> " is not a symbol."
+                s -> throwE $ "no such primitive: " <> s
+                where prim2 = primitive2 p1 args
+                      prim1 = primitive1 p1 args
+                      carAndCdr fn = prim1 $ \case
+                        Symbol Nil -> pure $ Symbol Nil
+                        Pair ra -> readRef ra <&> \(MkPair tup) -> fn tup
+                        o -> repr o >>= \s -> throwE $ toList p1
+                          <> " is only defined on pairs and nil. " <> s <> " is neither of those."
+                      xarAndXdr which = prim2 $ curry \case
+                        (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
+                        (o, _) -> repr o >>= \s -> throwE $ toList p1
+                          <> " is only defined when the first argument is a pair. "
+                          <> s <> " is not a pair."
+            _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> string x' >>= \case
         Just _ -> pure x' -- x' is a string, and strings evaluate to themselves
         Nothing -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
 
-tooManyParams :: NonEmpty Char -> [a] -> Int -> EvalMonad b
-tooManyParams nm args n =
-  throwE $ "Too many parameters in call to " <> toList nm
+excessPrimParams :: NonEmpty Char -> [a] -> Int -> EvalMonad b
+excessPrimParams nm args n =
+  throwE $ "Too many parameters in call to primitive " <> toList nm
     <> ". Got " <> show (length args) <> ", want at most " <> show n <> "."
+
+wrongParamCount :: NonEmpty Char -> [a] -> Int -> EvalMonad b
+wrongParamCount nm args n =
+  throwE $ "Wrong number of parameters in special form " <> toList nm
+    <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."
+
+specialForm1
+  :: NonEmpty Char
+  -> [Object IORef]
+  -> (Object IORef -> EvalMonad (Object IORef))
+  -> EvalMonad (Object IORef)
+specialForm1 nm args f = case args of
+  [a] -> f a
+  _ -> wrongParamCount nm args 1
 
 primitive1
   :: NonEmpty Char
@@ -163,7 +180,7 @@ primitive1
 primitive1 nm args f = case args of
   [] -> call (Symbol Nil)
   [a] -> call a
-  _ -> tooManyParams nm args 1
+  _ -> excessPrimParams nm args 1
   where
     call a = do
       a' <- evaluate a
@@ -178,7 +195,7 @@ primitive2 nm args f = case args of
   [] -> call (Symbol Nil) (Symbol Nil)
   [a] -> call a (Symbol Nil)
   [a, b] -> call a b
-  _ -> tooManyParams nm args 2
+  _ -> excessPrimParams nm args 2
   where
     call a b = do
       a' <- evaluate a
