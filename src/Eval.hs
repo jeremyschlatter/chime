@@ -62,6 +62,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     , "xar"
     , "xdr"
     , "sym"
+    , "nom"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -126,6 +127,10 @@ evaluate = \case
               Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
               Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
                 <> rep <> " is not a non-empty string."
+            "nom" -> prim1 $ \case
+              Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
+              x -> repr x >>= \rep -> throwE $ "sym is only defined on symbols. "
+                <> rep <> " is not a symbol."
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
                   prim1 = primitive1 p1 args

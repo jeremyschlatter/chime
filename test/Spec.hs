@@ -63,8 +63,10 @@ spec = do
       "( )" `is` "nil"
 
   describe "evaluation" do
+
     let is = evalShouldBe
     let isLike = evalShouldBeLike
+
     it "evaluates examples from the spec" do
       "t" `is` "t"
       "nil" `is` "nil"
@@ -104,3 +106,7 @@ spec = do
       "(type \\a)" `is` "char"
       -- @incomplete add tests for xar and xdr
       "(sym \"foo\")" `is` "foo"
+      "(nom 'foo)" `is` "\"foo\""
+
+    it "evaluates other examples" do
+      "(nom)" `is` "\"nil\""
