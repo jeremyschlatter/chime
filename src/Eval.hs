@@ -49,6 +49,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     )
   ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
     [ "id"
+    , "join"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -93,23 +94,25 @@ evaluate = \case
       Symbol f : args -> envLookup f >>= properList >>= \case
         Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
           case p of
-            "id" -> prim2 p1 args $ pure . fromBool .: curry \case
+            "id" -> prim2 $ pure . fromBool .: curry \case
                 (Symbol a, Symbol b) -> a == b
                 (Character a, Character b) -> a == b
                 (Stream, Stream) -> False -- @incomplete: what should this be?
                 (Pair ra, Pair rb) -> ra == rb
                 _ -> False
+            "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
             s -> throwE $ "no such primitive: " <> s
+            where prim2 = primitive2 p1 args
         _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
 
-prim2
+primitive2
   :: NonEmpty Char
   -> [Object IORef]
   -> (Object IORef -> Object IORef -> EvalMonad (Object IORef))
   -> EvalMonad (Object IORef)
-prim2 nm args f = case args of
+primitive2 nm args f = case args of
   [] -> call (Symbol Nil) (Symbol Nil)
   [a] -> call a (Symbol Nil)
   [a, b] -> call a b
