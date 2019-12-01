@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
 import BasePrelude hiding (evaluate, getEnv)
@@ -8,6 +9,7 @@ import Control.Monad.Trans.State
 import qualified Data.ByteString as B
 import Data.Text as T hiding (length)
 import Data.Text.Encoding
+import Control.Monad.Trans.Class
 
 import Common
 import Data
@@ -24,6 +26,15 @@ data EvalState = EvalState
  , _scope :: Environment
  }
 $(makeLenses ''EvalState)
+
+class MonadRef m => MonadMutableRef m where
+  modifyRef :: Ref m a -> (a -> a) -> m ()
+
+instance MonadMutableRef IO where
+  modifyRef = modifyIORef
+
+instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m) where
+  modifyRef = lift .: modifyRef
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
@@ -47,6 +58,8 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     , "car"
     , "cdr"
     , "type"
+    , "xar"
+    , "xdr"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -105,6 +118,8 @@ evaluate = \case
               Character _ -> 'c' :| "har"
               Pair _ -> 'p' :| "air"
               Stream -> 's' :| "tream"
+            "xar" -> xarAndXdr first
+            "xdr" -> xarAndXdr second
             s -> throwE $ "no such primitive: " <> s
             where prim2 = primitive2 p1 args
                   prim1 = primitive1 p1 args
@@ -113,6 +128,11 @@ evaluate = \case
                     Pair ra -> readRef ra <&> \(MkPair tup) -> fn tup
                     o -> repr o >>= \s -> throwE $ toList p1
                       <> " is only defined on pairs and nil. " <> s <> " is neither of those."
+                  xarAndXdr which = prim2 $ curry \case
+                    (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
+                    (o, _) -> repr o >>= \s -> throwE $ toList p1
+                      <> " is only defined when the first argument is a pair. "
+                      <> s <> " is not a pair."
         _ -> throwE $ "I don't know how to evaluate this yet"
       _ -> throwE $ "I don't know how to evaluate this yet"
     _ -> throwE $ "I don't know how to evaluate this yet"
