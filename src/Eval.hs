@@ -199,6 +199,9 @@ evaluate = \case
             preX <- lift get
             catchE (void $ evaluate x) $ const $ lift $ put preX
             evaluate y
+          "set" -> form2 $ \var val -> case var of
+            Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
+            _ -> throwE "set takes a symbol as its first argument"
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of

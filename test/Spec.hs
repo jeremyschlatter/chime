@@ -144,6 +144,12 @@ spec = do
       >> "(if)"
       > "nil"
 
+    it "implements set" $ replTest $ []
+      >> "(set x 'a)"
+      > "a"
+      >> "x"
+      > "a"
+
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
