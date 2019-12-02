@@ -7,7 +7,7 @@ import Test.Hspec
 
 import Common
 import Data
-import Eval hiding (repl)
+import Eval
 import Parse hiding (string)
 
 main :: IO ()
