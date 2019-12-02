@@ -133,9 +133,8 @@ evaluate = \case
     "scope" -> getEnv scope
     _ -> envLookup s
     where
-      getEnv =
-        (>>= (listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol)))) .
-         use
+      getEnv = use >=>
+        listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol))
   x' -> properList x' >>= \case
     Just (op' : args) -> (,op') <$> function op' >>= \case
       (Just (env, params, body), _) ->
