@@ -65,4 +65,7 @@ expression =  (Symbol <$> symbol)
 
 parse :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> Either (ParseErrorBundle String Void) (m (Object r))
-parse = M.parse (runIdentity . refSwap <$> expression <* eof)
+parse = M.parse (runIdentity . refSwap <$> (sc *> expression <* eof))
+
+isEmptyLine :: String -> Bool
+isEmptyLine = isJust . parseMaybe (sc *> eof)

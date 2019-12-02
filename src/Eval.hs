@@ -15,7 +15,7 @@ import Control.Monad.Trans.Class
 
 import Common
 import Data
-import Parse (parse, errorBundlePretty)
+import Parse (isEmptyLine, parse, errorBundlePretty)
 
 type Error = String
 
@@ -346,8 +346,10 @@ repl :: IO ()
 repl = builtinsIO >>= go where
   go s = do
     putStr "> "
-    line <- getLine
-    (x, s') <- readThenRunEval "repl" line s
-    putStrLn =<< either pure repr x
-    -- loop, resetting state if there was an error
-    go $ either (const s) (const s') x
+    line <- catchIOError getLine \e ->
+      bool (ioError e) (putStrLn "" *> exitSuccess) (isEOFError e)
+    if isEmptyLine line then go s else do
+      (x, s') <- readThenRunEval "repl" line s
+      putStrLn =<< either pure repr x
+      -- loop, resetting state if there was an error
+      go $ either (const s) (const s') x
