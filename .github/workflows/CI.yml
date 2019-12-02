@@ -1,0 +1,9 @@
+name: CI
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run tests
+      run: docker run --rm -v "$(pwd)":/app gcr.io/jeremy-schlatter-public-images/bel-ci:1 bash /app/.github/entrypoint.sh
