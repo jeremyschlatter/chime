@@ -115,14 +115,6 @@ spec = do
     let (>>) = replInput
     let (>) = replOutput
 
-    it "passes previous tests" $ replTest $ []
-      >> "(join 'a 'b)"
-      > "(a . b)"
-      >> "'x"
-      > "x"
-      >> "(if)"
-      > "nil"
-
     it "implements set" $ replTest $ []
       >> "(set x 'a)"
       > "a"
@@ -142,6 +134,12 @@ spec = do
       > "d"
       >> "x"
       > "(c . d)"
+
+    it "implements where" $ replTest $ []
+      >> "(set x '(a b c))"
+      > "(a b c)"
+      >> "(where (cdr x))"
+      > "((a b c) d)"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
