@@ -29,7 +29,7 @@ eval s =
 
 -- repl then compare
 evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b = eval a >>= (repr >=> (`shouldBe` b))
+evalShouldBe a b = eval a >>= (repr >=> flip (assertEqual $ "> " <> a) b)
 
 evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
 evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
@@ -126,3 +126,4 @@ spec = do
       "(if t   'a  t   'b 'c)" `is` "a"
       "(if nil 'a  t   'b 'c)" `is` "b"
       "(if nil 'a  nil 'b 'c)" `is` "c"
+      "(where (cdr '(a b c)))" `is` "((a b c) d)" -- based on (where (cdr x)) from the spec

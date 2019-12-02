@@ -25,6 +25,7 @@ type EvalMonad = ExceptT Error (StateT EvalState IO)
 data EvalState = EvalState
  { _globe :: Environment
  , _scope :: Environment
+ , _locs :: [()]
  }
 $(makeLenses ''EvalState)
 
@@ -75,7 +76,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
       x:xs -> MkSymbol (x :| xs)
 
 emptyState :: EvalState
-emptyState = EvalState [] []
+emptyState = EvalState [] [] []
 
 envLookup :: Symbol -> EvalMonad (Object IORef)
 envLookup s = do
@@ -134,6 +135,11 @@ evaluate = \case
                         where ll = NE.reverse acc'
                       c:cs -> go' (c<|acc') cs
             _ -> throwE $ "apply requires at least two parameters"
+          "where" -> pushLoc *> form1 evaluate <* popLoc where
+            pushLoc = locs %= (():)
+            popLoc = locs %= \case
+              [] -> error "should be impossible because of call to pushLoc"
+              _:xs -> xs
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
@@ -144,13 +150,15 @@ evaluate = \case
                     (Pair ra, Pair rb) -> ra == rb
                     _ -> False
                 "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
-                "car" -> carAndCdr fst
-                "cdr" -> carAndCdr snd
-                "type" -> prim1 $ pure . Symbol . MkSymbol . \case
-                  Symbol _ -> 's' :| "ymbol"
-                  Character _ -> 'c' :| "har"
-                  Pair _ -> 'p' :| "air"
-                  Stream -> 's' :| "tream"
+                "car" -> carAndCdr fst 'a'
+                "cdr" -> carAndCdr snd 'd'
+                "type" -> prim1 $ pure . Symbol . MkSymbol . go where
+                  go = \case
+                    Symbol _ -> 's' :| "ymbol"
+                    Character _ -> 'c' :| "har"
+                    Pair _ -> 'p' :| "air"
+                    Stream -> 's' :| "tream"
+                    WhereResult x -> go x
                 "xar" -> xarAndXdr first
                 "xdr" -> xarAndXdr second
                 "sym" -> prim1 $ \x -> string x >>= \s' -> case s' >>= nonEmpty of
@@ -164,9 +172,13 @@ evaluate = \case
                 s -> throwE $ "no such primitive: " <> s
                 where prim2 = primitive2 p1 args
                       prim1 = primitive1 p1 args
-                      carAndCdr fn = prim1 $ \case
+                      carAndCdr fn w = prim1 $ \case
                         Symbol Nil -> pure $ Symbol Nil
-                        Pair ra -> readRef ra <&> \(MkPair tup) -> fn tup
+                        -- If we are inside a "where", return the tuple and our location.
+                        -- Otherwise, we return the normal value.
+                        Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
+                          [] -> pure $ fn tup
+                          _ -> listToPair $ pure <$> [Pair ra, Sym w ""]
                         o -> repr o >>= \s -> throwE $ toList p1
                           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
                       xarAndXdr which = prim2 $ curry \case

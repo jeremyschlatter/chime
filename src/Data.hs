@@ -4,6 +4,8 @@ module Data where
 import BasePrelude
 import Control.Monad.Trans.Class
 
+import Common
+
 -- MonadRef models mutable variables.
 -- Mutable variables are a core part of the Bel data model.
 -- During evaluation, m will be IO. But we don't need or want
@@ -34,9 +36,11 @@ data Object r
   | Pair (r (Pair r))
   | Character Character
   | Stream
+  | WhereResult (Object r)
 
 refSwap :: (MonadRef a, MonadRef b, ra ~ Ref a, rb ~ Ref b) => Object ra -> a (b (Object rb))
 refSwap = \case
+  WhereResult x -> WhereResult <$$> refSwap x
   Symbol s -> pure $ pure $ Symbol s
   Character c -> pure $ pure $ Character c
   Stream -> pure $ pure Stream
@@ -101,6 +105,7 @@ instance Repr m Character where
   repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
 instance Repr m (Object m) where
   repr = \case
+    WhereResult x -> repr x
     Symbol s -> repr s
     Pair p -> repr p
     Character c -> repr c
