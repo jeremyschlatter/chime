@@ -18,7 +18,7 @@ spec = do
 
   describe "parsing" do
 
-    let is = roundTripShouldBe
+    let is = parseThenPrintShouldBe
 
     it "parses and prints spec examples" do
       "foo" `is` "foo"
@@ -132,8 +132,8 @@ spec = do
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
 
-roundTripShouldBe :: String -> String -> Expectation
-roundTripShouldBe a b =
+parseThenPrintShouldBe :: String -> String -> Expectation
+parseThenPrintShouldBe a b =
   either
     (expectationFailure . ((a <> ": ") <>) . errorBundlePretty)
     (>>= repr >=> (`shouldBe` b))
