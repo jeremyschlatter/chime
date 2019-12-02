@@ -108,6 +108,13 @@ evaluate = \case
         in case toList f of
           "quote" -> form1 pure
           "lit" -> pure x'
+          "if" -> go args where
+            go = \case
+              [] -> pure $ Symbol Nil
+              [x] -> evaluate x
+              b:x:rest -> evaluate b >>= \case
+                Symbol Nil -> go rest
+                _ -> evaluate x
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of

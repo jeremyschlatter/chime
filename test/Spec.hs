@@ -112,3 +112,15 @@ spec = do
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""
+      "(if)" `is` "nil"
+      "(if 'a)" `is` "a"
+      "(if t   'a)" `is` "a"
+      "(if nil 'a)" `is` "nil"
+      "(if t   'a 'b)" `is` "a"
+      "(if nil 'a 'b)" `is` "b"
+      "(if t   'a  t   'b)" `is` "a"
+      "(if nil 'a  t   'b)" `is` "b"
+      "(if nil 'a  nil 'b)" `is` "nil"
+      "(if t   'a  t   'b 'c)" `is` "a"
+      "(if nil 'a  t   'b 'c)" `is` "b"
+      "(if nil 'a  nil 'b 'c)" `is` "c"
