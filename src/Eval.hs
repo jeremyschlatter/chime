@@ -108,6 +108,7 @@ evaluate = \case
     Just l -> case l of
       Symbol (MkSymbol f) : args ->
         let form1 = specialForm1 f args
+            form2 = specialForm2 f args
             form3 = specialForm3 f args
         in case toList f of
           "quote" -> form1 pure
@@ -151,6 +152,10 @@ evaluate = \case
                 _:xs -> xs
             _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
               <> rep <> " is not a symbol."
+          "after" -> form2 $ \x y -> do
+            preX <- lift get
+            catchE (void $ evaluate x) $ const $ lift $ put preX
+            evaluate y
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
@@ -221,6 +226,15 @@ specialForm1
 specialForm1 nm args f = case args of
   [a] -> f a
   _ -> wrongParamCount nm args 1
+
+specialForm2
+  :: NonEmpty Char
+  -> [Object IORef]
+  -> (Object IORef -> Object IORef -> EvalMonad (Object IORef))
+  -> EvalMonad (Object IORef)
+specialForm2 nm args f = case args of
+  [a, b] -> f a b
+  _ -> wrongParamCount nm args 2
 
 specialForm3
   :: NonEmpty Char
