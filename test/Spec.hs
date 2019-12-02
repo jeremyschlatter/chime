@@ -141,6 +141,14 @@ spec = do
       >> "(where (cdr x))"
       > "((a b c) d)"
 
+    it "implements dyn" $ replTest $ []
+      >> "(set x 'a)"
+      > "a"
+      >> "(dyn x 'z (join x 'b))"
+      > "(z . b)"
+      >> "x"
+      > "a"
+
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
 
