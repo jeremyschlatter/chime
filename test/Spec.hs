@@ -109,6 +109,8 @@ spec = do
       "(nom 'foo)" `is` "\"foo\""
       "(lit a)" `is` "(lit a)"
       "car" `is` "(lit prim car)"
+      "(apply join '(a b))" `is` "(a . b)"
+      "(apply join 'a '(b))" `is` "(a . b)"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""

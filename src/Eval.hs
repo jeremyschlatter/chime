@@ -1,14 +1,14 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude hiding (evaluate, getEnv)
+import BasePrelude hiding (evaluate, getEnv, head, tail)
 import Control.Lens.Combinators
-import Control.Lens.Operators
+import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import qualified Data.ByteString as B
-import Data.List.NonEmpty (nonEmpty)
-import Data.Text as T hiding (length)
+import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
+import Data.Text (singleton)
 import Data.Text.Encoding
 import Control.Monad.Trans.Class
 
@@ -50,7 +50,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
               pure . Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
       in listToPair $ flip fmap [0..127] \i -> do
            let car = Character $ MkCharacter $ chr i
-           cdr <- listToPair $ convert $ encodeUtf8 $ T.singleton $ chr i
+           cdr <- listToPair $ convert $ encodeUtf8 $ singleton $ chr i
            Pair <$> (newRef $ MkPair (car, cdr))
     )
   ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
@@ -115,6 +115,25 @@ evaluate = \case
               b:x:rest -> evaluate b >>= \case
                 Symbol Nil -> go rest
                 _ -> evaluate x
+          "apply" -> case args of
+            fa : r:est -> go (pure fa) (r:|est) where
+              go acc = \case
+                x :| y:ys -> evaluate x >>= flip go (y:|ys) . (<|acc)
+                -- @incomplete apply can take a dotted list in its last
+                -- argument under some conditions, but I don't understand
+                -- those conditions yet.
+                ls :| [] -> evaluate ls >>= properList >>= \case
+                  Nothing -> throwE $
+                    "The last argument to apply must be a proper list, but was not. "
+                    <> "(apply should accept non-proper lists in some cases, but "
+                    <> "that has not been implemented yet)."
+                  Just lst -> go' acc lst where
+                    quote x = listToPair [pure $ Sym 'q' "uote", pure x]
+                    go' acc' = \case
+                      [] -> listToPair (pure (head ll) : fmap quote (tail ll)) >>= evaluate
+                        where ll = NE.reverse acc'
+                      c:cs -> go' (c<|acc') cs
+            _ -> throwE $ "apply requires at least two parameters"
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
