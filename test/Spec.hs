@@ -83,7 +83,6 @@ spec = do
       "(type 'a)" `is` "symbol"
       "(type '(a))" `is` "pair"
       "(type \\a)" `is` "char"
-      -- @incomplete add tests for xar and xdr
       "(sym \"foo\")" `is` "foo"
       "(nom 'foo)" `is` "\"foo\""
       "(lit a)" `is` "(lit a)"
@@ -128,6 +127,20 @@ spec = do
       > "a"
       >> "x"
       > "a"
+
+    it "implements xar and xdr" $ replTest $ []
+      >> "(set x '(a . b))"
+      > "(a . b)"
+      >> "x"
+      > "(a . b)"
+      >> "(xar x 'c)"
+      > "c"
+      >> "x"
+      > "(c . b)"
+      >> "(xdr x 'd)"
+      > "d"
+      >> "x"
+      > "(c . d)"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
