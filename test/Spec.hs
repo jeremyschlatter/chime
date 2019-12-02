@@ -13,35 +13,13 @@ import Parse hiding (string)
 main :: IO ()
 main = hspec spec
 
---- parse then print then compare
-roundTripShouldBe :: String -> String -> Expectation
-roundTripShouldBe a b =
-  either
-    (expectationFailure . ((a <> ": ") <>) . errorBundlePretty)
-    (>>= repr >=> (`shouldBe` b))
-    (parse @IO "test case" a)
-
-eval :: String -> IO (Object IORef)
-eval s =
-   fst <$> (builtinsIO >>= readThenRunEval "test case" s) >>=
-     either
-       (\e -> undefined <$> (expectationFailure $ s <> ": " <> e))
-       pure
-
--- repl then compare
-evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b = eval a >>= (repr >=> flip (assertEqual $ "> " <> a) b)
-
-evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
-evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
-  runMaybeT (f x) >>=
-    maybe (assertEqual (s <> " should evaluate to") desc rep) (const $ pure ())
-
 spec :: Spec
 spec = do
 
   describe "parsing" do
+
     let is = roundTripShouldBe
+
     it "parses and prints spec examples" do
       "foo" `is` "foo"
       "(foo . bar)" `is` "(foo . bar)"
@@ -133,6 +111,7 @@ spec = do
       "((lit clo nil (x) (join x 'b)) ''a)" `is` "(a . b)"
 
   describe "multi-line repl sessions" do
+
     let (>>) = replInput
     let (>) = replOutput
 
@@ -149,6 +128,37 @@ spec = do
       > "a"
       >> "x"
       > "a"
+
+-- ----------------------------------------------------------------------------
+--                         parsing test helpers
+
+roundTripShouldBe :: String -> String -> Expectation
+roundTripShouldBe a b =
+  either
+    (expectationFailure . ((a <> ": ") <>) . errorBundlePretty)
+    (>>= repr >=> (`shouldBe` b))
+    (parse @IO "test case" a)
+
+-- ----------------------------------------------------------------------------
+--                           eval test helpers
+
+eval :: String -> IO (Object IORef)
+eval s =
+   fst <$> (builtinsIO >>= readThenRunEval "test case" s) >>=
+     either
+       (\e -> undefined <$> (expectationFailure $ s <> ": " <> e))
+       pure
+
+evalShouldBe :: String -> String -> Expectation
+evalShouldBe a b = eval a >>= (repr >=> flip (assertEqual $ "> " <> a) b)
+
+evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
+evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
+  runMaybeT (f x) >>=
+    maybe (assertEqual (s <> " should evaluate to") desc rep) (const $ pure ())
+
+-- ----------------------------------------------------------------------------
+--                     multi-line repl test helpers
 
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
