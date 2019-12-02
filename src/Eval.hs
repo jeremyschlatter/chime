@@ -5,6 +5,7 @@ import BasePrelude hiding (evaluate, getEnv, head, tail)
 import Control.Lens.Combinators
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
 import qualified Data.ByteString as B
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
@@ -32,12 +33,18 @@ $(makeLenses ''EvalState)
 
 class MonadRef m => MonadMutableRef m where
   modifyRef :: Ref m a -> (a -> a) -> m ()
+  writeRef :: Ref m a -> a -> m ()
 
 instance MonadMutableRef IO where
   modifyRef = modifyIORef
+  writeRef = writeIORef
 
 instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m) where
   modifyRef = lift .: modifyRef
+  writeRef = lift .: writeRef
+
+modifyRefM :: MonadMutableRef m => Ref m a -> (a -> m a) -> m ()
+modifyRefM r f = readRef r >>= (f >=> writeRef r)
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
@@ -87,10 +94,35 @@ envLookup s = do
   maybe
     (throwE . ("undefined symbol: " <>) =<< repr s)
     pure
+    -- @incomplete: change behavior inside where
     (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
 
 pattern Sym       :: Char -> String -> Object s
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
+
+function :: Object IORef -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
+function x = runMaybeT $ MaybeT (properList x) >>= \case
+  [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
+    env' <- properListOf env \case
+      Pair r -> readRef r >>= \(MkPair tup) -> case tup of
+        (Symbol var, val) -> pure (var, val)
+        _ -> empty
+      _ -> empty
+    params' <- properListOf params \case
+      Symbol s -> pure s
+      _ -> empty
+    pure (env', params', body)
+  _ -> empty
+
+bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
+bindVars bindings = \case
+  -- @incomplete: Do I need to change behavior here when inside where?
+  s@(Symbol s') -> pure $ maybe s id $ lookup s' bindings
+  p@(Pair r) -> doMod $> p where
+    doMod = modifyRefM r \(MkPair (car, cdr)) -> liftA2 (MkPair .: (,))
+      (bindVars bindings car)
+      (bindVars bindings cdr)
+  x -> pure x
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
 evaluate = \case
@@ -105,8 +137,19 @@ evaluate = \case
         (>>= (listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol)))) .
          use
   x' -> properList x' >>= \case
-    Just l -> case l of
-      Symbol (MkSymbol f) : args ->
+    Just (op' : args) -> (,op') <$> function op' >>= \case
+      (Just (env, params, body), _) ->
+        let (nArgs, nParams) = (length args, length params) in
+        case compare nArgs nParams of
+          LT -> throwE $ "Not enough arguments in function call."
+            <> " Got " <> show nArgs <> ", want " <> show nParams <> "."
+          GT -> throwE $ "Too many arguments in function call."
+            <> " Got " <> show nArgs <> ", want " <> show nParams <> "."
+          EQ -> do
+            args' <- traverse evaluate args
+            let bindings = zipWith (,) params args' <> env
+            bindVars bindings body >>= evaluate
+      (_, Symbol (MkSymbol f)) ->
         let form1 = specialForm1 f args
             form2 = specialForm2 f args
             form3 = specialForm3 f args

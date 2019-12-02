@@ -10,3 +10,5 @@ infixr 8 .:
 (<$$>) = fmap . fmap
 infixl 4 <$$>
 {-# INLINE (<$$>) #-}
+
+type String1 = NonEmpty Char

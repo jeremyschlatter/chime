@@ -3,6 +3,7 @@ module Data where
 
 import BasePrelude
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 
 import Common
 
@@ -63,11 +64,13 @@ properList = \case
   Pair ref -> readRef ref >>= \(MkPair (car, cdr)) -> fmap (car :) <$> properList cdr
   _ -> pure Nothing
 
+properListOf :: (MonadRef m, r ~ Ref m) => Object r -> (Object r -> MaybeT m a) -> MaybeT m [a]
+properListOf x f = MaybeT (properList x) >>= traverse f
+
 string :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Character])
-string x = properList x <&> (=<<) (traverse \case
-    Character c -> Just c
-    _ -> Nothing
-  )
+string x = runMaybeT $ properListOf x \case
+  Character c -> pure c
+  _ -> empty
 
 listToPair :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
 listToPair = \case
