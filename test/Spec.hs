@@ -52,18 +52,18 @@ spec = do
       "o" `is` "o"
       "apply" `is` "apply"
 
-      ("chars" `isLike` \x -> MaybeT (properList x) >>= traverse \case
+      ("chars" `isLike` flip properListOf \case
          Pair r -> readRef r >>= \case
            MkPair (Character _, s) -> string s
-           _ -> pure Nothing
-         _ -> pure Nothing
+           _ -> empty
+         _ -> empty
        ) "a list of pairs of (<character> . <binary representation>)"
 
-      let varValList = \x -> MaybeT (properList x) >>= traverse \case
+      let varValList = flip properListOf \case
                           Pair r -> readRef r <&> \case
                             MkPair (Symbol _, _) -> Just ()
                             _ -> Nothing
-                          _ -> pure Nothing
+                          _ -> empty
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
       ("scope" `isLike` varValList) "a list of (var . val) pairs"
 
