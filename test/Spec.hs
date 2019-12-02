@@ -38,6 +38,7 @@ spec = do
       "(\\h \\e \\l \\l \\o)" `is` "\"hello\""
       "\"hello\"" `is` "\"hello\""
       "'a" `is` "(quote a)"
+
     it "parses and prints other examples" do
       "( )" `is` "nil"
 
