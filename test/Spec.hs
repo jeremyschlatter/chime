@@ -111,6 +111,7 @@ spec = do
       "car" `is` "(lit prim car)"
       "(apply join '(a b))" `is` "(a . b)"
       "(apply join 'a '(b))" `is` "(a . b)"
+      "(dyn x 'z (join x 'b))" `is` "(z . b)"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""

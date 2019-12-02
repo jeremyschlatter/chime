@@ -26,6 +26,7 @@ data EvalState = EvalState
  { _globe :: Environment
  , _scope :: Environment
  , _locs :: [()]
+ , _dyns :: Environment
  }
 $(makeLenses ''EvalState)
 
@@ -76,16 +77,17 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
       x:xs -> MkSymbol (x :| xs)
 
 emptyState :: EvalState
-emptyState = EvalState [] [] []
+emptyState = EvalState [] [] [] []
 
 envLookup :: Symbol -> EvalMonad (Object IORef)
 envLookup s = do
+  dyns' <- use dyns
   scope' <- use scope
   globe' <- use globe
   maybe
     (throwE . ("undefined symbol: " <>) =<< repr s)
     pure
-    (lookup s scope' <|> lookup s globe')
+    (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
 
 pattern Sym       :: Char -> String -> Object s
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
@@ -106,6 +108,7 @@ evaluate = \case
     Just l -> case l of
       Symbol (MkSymbol f) : args ->
         let form1 = specialForm1 f args
+            form3 = specialForm3 f args
         in case toList f of
           "quote" -> form1 pure
           "lit" -> pure x'
@@ -140,6 +143,14 @@ evaluate = \case
             popLoc = locs %= \case
               [] -> error "should be impossible because of call to pushLoc"
               _:xs -> xs
+          "dyn" -> form3 $ \v x y -> case v of
+            Symbol s -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
+              pushDyn evX = dyns %= ((s,evX):)
+              popDyn = dyns %= \case
+                [] -> error "should be impossible because of call to pushDyn"
+                _:xs -> xs
+            _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
+              <> rep <> " is not a symbol."
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
@@ -210,6 +221,15 @@ specialForm1
 specialForm1 nm args f = case args of
   [a] -> f a
   _ -> wrongParamCount nm args 1
+
+specialForm3
+  :: NonEmpty Char
+  -> [Object IORef]
+  -> (Object IORef -> Object IORef -> Object IORef -> EvalMonad (Object IORef))
+  -> EvalMonad (Object IORef)
+specialForm3 nm args f = case args of
+  [a, b, c] -> f a b c
+  _ -> wrongParamCount nm args 3
 
 primitive1
   :: NonEmpty Char
