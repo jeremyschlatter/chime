@@ -2,6 +2,9 @@ module Common where
 
 import BasePrelude
 
+bind :: Monad m => m a -> (a -> m b) -> m b
+bind = (>>=)
+
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.:) = (.) . (.)
 infixr 8 .:

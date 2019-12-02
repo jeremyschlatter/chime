@@ -1,12 +1,13 @@
 module Main where
 
-import BasePrelude
+import BasePrelude hiding ((>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
 import Test.HUnit.Base
 import Test.Hspec
 
+import Common
 import Data
-import Eval
+import Eval hiding (repl)
 import Parse hiding (string)
 
 main :: IO ()
@@ -130,3 +131,41 @@ spec = do
       "(where (cdr '(a b c)))" `is` "((a b c) d)" -- based on (where (cdr x)) from the spec
       "(after a 'b)" `is` "b"
       "((lit clo nil (x) (join x 'b)) ''a)" `is` "(a . b)"
+
+  describe "multi-line repl sessions" do
+    let (>>) = replInput
+    let (>) = replOutput
+
+    it "passes previous tests" $ replTest $ []
+      >> "(join 'a 'b)"
+      > "(a . b)"
+      >> "'x"
+      > "x"
+      >> "(if)"
+      > "nil"
+
+red :: String -> String
+red s = "\ESC[31m" <> s <> "\ESC[0m"
+
+clear :: String -> String
+clear s = "\ESC[0m" <> s <> "\ESC[0m"
+
+replTest :: [(String, String)] -> IO ()
+replTest = bind builtinsIO . go [] . reverse where
+  go :: [String] -> [(String, String)] -> EvalState -> IO ()
+  go prev ios state = case ios of
+    [] -> pure ()
+    (in_, out) : rest -> do
+      let prefix = intercalate "\n" (reverse ("> " <> in_ : prev))
+      (x, s') <- readThenRunEval ("line " <> show (length prev)) in_ state
+      either
+        (expectationFailure . (clear (prefix <> "\n") <>) . red)
+        (repr >=> assertEqual prefix out)
+        x
+      go (out : "> " <> in_ : prev) rest s'
+
+replInput :: [(String, String)] -> String -> ([(String, String)], String)
+replInput = (,)
+
+replOutput :: ([(String, String)], String) -> String -> [(String, String)]
+replOutput (ios, i) o = (i, o) : ios
