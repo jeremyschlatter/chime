@@ -165,6 +165,8 @@ spec = do
       "(all atom '(a b))" `is` "t"
       "(all atom nil)" `is` "t"
       "(all atom '(a (b c) d))" `is` "nil"
+      "(some atom '((a b) (c d)))" `is` "nil"
+      "(some atom '((a b) c (d e)))" `is` "(c (d e))"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
