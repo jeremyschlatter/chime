@@ -361,7 +361,13 @@ bel :: FilePath -> IO (Either Error (Object IORef), EvalState)
 bel f = builtinsIO >>= \b -> readFile f >>= \s -> readThenRunEval f s b
 
 repl :: IO ()
-repl = builtinsIO >>= go where
+repl = do
+  args <- getArgs
+  s <- case args of
+    [] -> builtinsIO
+    [f] -> bel f >>= \(x, s) -> either die (const $ pure s) x
+    _ -> die "Sorry, I can only handle up to one file"
+  go s where
   go s = do
     putStr "> "
     line <- catchIOError getLine \e ->
