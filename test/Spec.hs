@@ -187,7 +187,7 @@ evalIn s state =
        pure
 
 evalInShouldBe :: String -> String -> EvalState -> Expectation
-evalInShouldBe a b = evalIn a >=> repr >=> flip (assertEqual $ "> " <> a) b
+evalInShouldBe a b = evalIn a >=> repr >=> assertEqual ("> " <> a) b
 
 eval :: String -> IO (Object IORef)
 eval s = builtinsIO >>= evalIn s
