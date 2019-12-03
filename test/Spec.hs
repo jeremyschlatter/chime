@@ -158,9 +158,10 @@ spec = do
     it "interprets bel.bel correctly" do
       "(no nil)" `is` "t"
       "(no 'a)" `is` "nil"
-
-failure :: String -> IO a
-failure = fmap undefined . expectationFailure
+      "(atom \\a)" `is` "t"
+      "(atom nil)" `is` "t"
+      "(atom 'a)" `is` "t"
+      "(atom '(a))" `is` "nil"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
@@ -175,11 +176,14 @@ parseThenPrintShouldBe a b =
 -- ----------------------------------------------------------------------------
 --                           eval test helpers
 
+failure :: String -> IO a
+failure = fmap undefined . expectationFailure
+
 evalIn :: String -> EvalState -> IO (Object IORef)
 evalIn s state =
    fst <$> readThenRunEval "test case" s state >>=
      either
-       (\e -> undefined <$> (expectationFailure $ s <> ": " <> e))
+       (\e -> failure $ s <> ": " <> e)
        pure
 
 evalInShouldBe :: String -> String -> EvalState -> Expectation
