@@ -2,7 +2,7 @@
 module Eval where
 
 import BasePrelude hiding (evaluate, getEnv, head, tail)
-import Control.Lens.Combinators
+import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
@@ -100,8 +100,8 @@ envLookup s = do
 pattern Sym       :: Char -> String -> Object s
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
 
-function :: Object IORef -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
-function x = runMaybeT $ MaybeT (properList x) >>= \case
+function :: [Object IORef] -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
+function x = runMaybeT $ case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
       Pair r -> readRef r >>= \(MkPair tup) -> case tup of
@@ -123,22 +123,173 @@ bindVars bindings = \case
       (bindVars bindings cdr)
   x -> pure x
 
-toMaybeT :: EvalMonad a -> MaybeT EvalMonad a
-toMaybeT m = MaybeT $ catchE (Just <$> m) (const $ pure Nothing)
-
-doStuff :: EvalMonad (Object IORef) -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
-doStuff = runMaybeT . (toMaybeT >=> (MaybeT . function))
-
-evaluatesToFunction :: Object IORef -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
-evaluatesToFunction = runMaybeT . (toMaybeT >=> (MaybeT . function)) . evaluate
-
 quote :: Object IORef -> EvalMonad (Object IORef)
 quote x = pureListToPair [Sym 'q' "uote", x]
 
+data Operator
+  = Primitive Primitive
+  | SpecialForm SpecialForm
+  | Closure Environment [Symbol] (Object IORef)
+
+data ListExpr
+  = StringExpr
+
+data SpecialForm
+  = Form1 String (Object IORef -> EvalMonad (Object IORef))
+  | Form2 String (Object IORef -> Object IORef -> EvalMonad (Object IORef))
+  | Form3 String (Object IORef -> Object IORef -> Object IORef -> EvalMonad (Object IORef))
+  | FormN String ([Object IORef] -> EvalMonad (Object IORef))
+  | Lit
+
+formName :: SpecialForm -> String
+formName = \case
+  Form1 s _ -> s
+  Form2 s _ -> s
+  Form3 s _ -> s
+  FormN s _ -> s
+  Lit -> "lit"
+
+specialForm :: Object IORef -> Maybe SpecialForm
+specialForm = \case
+  Symbol s -> lookup (toList $ unSymbol s) specialForms
+  _ -> Nothing
+
+specialForms :: [(String, SpecialForm)]
+specialForms = (\f -> (formName f, f)) <$>
+  [ Form1 "quote" pure
+  , Lit
+  , FormN "if" $ let
+      go = \case
+        [] -> pure $ Symbol Nil
+        [x] -> evaluate x
+        b:x:rest -> evaluate b >>= \case
+          Symbol Nil -> go rest
+          _ -> evaluate x
+      in go
+  , FormN "apply" $ let
+      go acc = \case
+        x :| y:ys -> evaluate x >>= flip go (y:|ys) . (<|acc)
+        -- @incomplete apply can take a dotted list in its last
+        -- argument under some conditions, but I don't understand
+        -- those conditions yet.
+        ls :| [] -> evaluate ls >>= properList >>= \case
+          Nothing -> throwE $
+            "The last argument to apply must be a proper list, but was not. "
+            <> "(apply should accept non-proper lists in some cases, but "
+            <> "that has not been implemented yet)."
+          Just lst -> go' acc lst where
+            go' acc' = \case
+              [] -> listToPair (pure (head ll) : fmap quote (tail ll)) >>= evaluate
+                where ll = NE.reverse acc'
+              c:cs -> go' (c<|acc') cs
+      badParams = throwE "apply requires at least two parameters"
+      in \case fa : r:est -> go (pure fa) (r:|est); _ -> badParams where
+  , Form1 "where" let
+      pushLoc = locs %= (():)
+      popLoc = locs %= \case
+        [] -> error "should be impossible because of call to pushLoc"
+        _:xs -> xs
+      in \x -> pushLoc *> evaluate x <* popLoc
+  , Form3 "dyn" \v x y -> case v of
+        Symbol s -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
+          pushDyn evX = dyns %= ((s,evX):)
+          popDyn = dyns %= \case
+            [] -> error "should be impossible because of call to pushDyn"
+            _:xs -> xs
+        _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
+          <> rep <> " is not a symbol."
+  , Form2 "after" \x y -> do
+      preX <- lift get
+      catchE (void $ evaluate x) $ const $ lift $ put preX
+      evaluate y
+  , Form2 "set" \var val -> case var of
+      Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
+      _ -> throwE "set takes a symbol as its first argument"
+  -- @incomplete: this is just an approximation, since I haven't learned
+  -- yet what the full scope of def is.
+  , Form3 "def" \n p e -> do
+      -- @factoring: this should just say "evaluate (set n (lit clo nil p e))"
+      -- see if I can make that more obvious
+      f' <- listToPair (pure <$> [Sym 'l' "it", Sym 'c' "lo", Symbol Nil, p, e])
+      evaluate =<< listToPair (pure <$> [Sym 's' "et", n, f'])
+  ]
+
+data Primitive
+  = Prim1 String (Object IORef -> EvalMonad (Object IORef))
+  | Prim2 String (Object IORef -> Object IORef -> EvalMonad (Object IORef))
+
+primName :: Primitive -> String
+primName = \case
+  Prim1 s _ -> s
+  Prim2 s _ -> s
+
+primitive :: [Object IORef] -> Maybe Primitive
+primitive = \case
+  [Sym 'l' "it", Sym 'p' "rim", Symbol x] -> lookup (toList $ unSymbol x) primitives
+  _ -> Nothing
+
+primitives :: [(String, Primitive)]
+primitives = (\p -> (primName p, p)) <$>
+  [ Prim2 "id" $ pure . fromBool .: curry \case
+      (Symbol a, Symbol b) -> a == b
+      (Character a, Character b) -> a == b
+      (Stream, Stream) -> False -- @incomplete: what should this be?
+      (Pair ra, Pair rb) -> ra == rb
+      _ -> False
+  , Prim2 "join" $ fmap Pair . newRef . MkPair .: (,)
+  , carAndCdr "car" fst 'a'
+  , carAndCdr "cdr" snd 'd'
+  , Prim1 "type" $ let
+      go = \case
+        Symbol _ -> 's' :| "ymbol"
+        Character _ -> 'c' :| "har"
+        Pair _ -> 'p' :| "air"
+        Stream -> 's' :| "tream"
+        WhereResult x -> go x
+      in pure . Symbol . MkSymbol . go
+  , xarAndXdr "xar" first
+  , xarAndXdr "xdr" second
+  , Prim1 "sym" \x -> string x >>= \s' -> case s' >>= nonEmpty of
+      Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
+      Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
+        <> rep <> " is not a non-empty string."
+  , Prim1 "nom" \case
+      Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
+      x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
+        <> rep <> " is not a symbol."
+  ] where
+      carAndCdr nm fn w = Prim1 nm \case
+        Symbol Nil -> pure $ Symbol Nil
+        -- If we are inside a "where", return the tuple and our location.
+        -- Otherwise, we return the normal value.
+        Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
+          [] -> pure $ fn tup
+          _ -> listToPair $ pure <$> [Pair ra, Sym w ""]
+        o -> repr o >>= \s -> throwE $ nm
+          <> " is only defined on pairs and nil. " <> s <> " is neither of those."
+      xarAndXdr nm which = Prim2 nm $ curry \case
+        (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
+        (o, _) -> repr o >>= \s -> throwE $ nm
+          <> " is only defined when the first argument is a pair. "
+          <> s <> " is not a pair."
+
+operator :: Object IORef -> EvalMonad (Maybe Operator)
+operator = \case
+  (specialForm -> Just f) -> pure $ Just $ SpecialForm f
+  x -> evaluate x >>= \x' -> properList x' >>= \case
+    (Just (primitive -> Just f)) -> pure $ Just $ Primitive f
+    (Just l)  -> (\(e, p, b) -> Closure e p b) <$$> function l
+    Nothing -> pure Nothing
+
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate = \case
+evaluate expr = case expr of
+  -- characters
   c@(Character _) -> pure c
+
+  -- streams
   s@Stream -> pure s
+
+  -- symbols
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv scope
@@ -146,9 +297,37 @@ evaluate = \case
     where
       getEnv = use >=>
         listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol))
-  x' -> properList x' >>= \case
-    Just (op' : args) -> (,op') <$> evaluatesToFunction op' >>= \case
-      (Just (env, params, body), _) ->
+
+  -- pairs
+  Pair ref -> liftA2 (,) (string expr) (properList1 ref) >>= \case
+    -- strings
+    (Just _, _) -> pure expr
+
+    -- operators with arguments
+    (_, Just (op :| args)) -> operator op >>= maybe giveUp \case
+      Primitive p -> case p of
+        Prim1 nm f -> case args of
+          [] -> call (Symbol Nil)
+          [a] -> call a
+          _ -> excessPrimParams nm args 1
+          where call = evaluate >=> f
+        Prim2 nm f -> case args of
+          [] -> call (Symbol Nil) (Symbol Nil)
+          [a] -> call a (Symbol Nil)
+          [a,b] -> call a b
+          _ -> excessPrimParams nm args 2
+          where
+            call a b = do
+              a' <- evaluate a
+              b' <- evaluate b
+              f a' b'
+      SpecialForm form -> case form of
+        Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
+        Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
+        Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
+        FormN _ f -> f args
+        Lit -> pure expr
+      Closure env params body ->
         let (nArgs, nParams) = (length args, length params) in
         case compare nArgs nParams of
           LT -> throwE $ "Not enough arguments in function call."
@@ -159,183 +338,24 @@ evaluate = \case
             args' <- traverse (evaluate >=> quote) args
             let bindings = zipWith (,) params args' <> env
             bindVars bindings body >>= evaluate
-      (_, Symbol (MkSymbol f)) ->
-        let form1 = specialForm1 f args
-            form2 = specialForm2 f args
-            form3 = specialForm3 f args
-        in case toList f of
-          "quote" -> form1 pure
-          "lit" -> pure x'
-          "if" -> go args where
-            go = \case
-              [] -> pure $ Symbol Nil
-              [x] -> evaluate x
-              b:x:rest -> evaluate b >>= \case
-                Symbol Nil -> go rest
-                _ -> evaluate x
-          "apply" -> case args of
-            fa : r:est -> go (pure fa) (r:|est) where
-              go acc = \case
-                x :| y:ys -> evaluate x >>= flip go (y:|ys) . (<|acc)
-                -- @incomplete apply can take a dotted list in its last
-                -- argument under some conditions, but I don't understand
-                -- those conditions yet.
-                ls :| [] -> evaluate ls >>= properList >>= \case
-                  Nothing -> throwE $
-                    "The last argument to apply must be a proper list, but was not. "
-                    <> "(apply should accept non-proper lists in some cases, but "
-                    <> "that has not been implemented yet)."
-                  Just lst -> go' acc lst where
-                    go' acc' = \case
-                      [] -> listToPair (pure (head ll) : fmap quote (tail ll)) >>= evaluate
-                        where ll = NE.reverse acc'
-                      c:cs -> go' (c<|acc') cs
-            _ -> throwE $ "apply requires at least two parameters"
-          "where" -> pushLoc *> form1 evaluate <* popLoc where
-            pushLoc = locs %= (():)
-            popLoc = locs %= \case
-              [] -> error "should be impossible because of call to pushLoc"
-              _:xs -> xs
-          "dyn" -> form3 $ \v x y -> case v of
-            Symbol s -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
-              pushDyn evX = dyns %= ((s,evX):)
-              popDyn = dyns %= \case
-                [] -> error "should be impossible because of call to pushDyn"
-                _:xs -> xs
-            _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
-              <> rep <> " is not a symbol."
-          "after" -> form2 $ \x y -> do
-            preX <- lift get
-            catchE (void $ evaluate x) $ const $ lift $ put preX
-            evaluate y
-          "set" -> form2 $ \var val -> case var of
-            Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
-            _ -> throwE "set takes a symbol as its first argument"
-          -- @incomplete: this is just an approximation, since I haven't learned
-          -- yet what the full scope of def is.
-          "def" -> form3 $ \n p e -> do
-            -- @factoring: this should just say "evaluate (set n (lit clo nil p e))"
-            -- see if I can make that more obvious
-            f' <- listToPair (pure <$> [Sym 'l' "it", Sym 'c' "lo", Symbol Nil, p, e])
-            evaluate =<< listToPair (pure <$> [Sym 's' "et", n, f'])
-          _ -> envLookup (MkSymbol f) >>= properList >>= \case
-            Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
-              case p of
-                "id" -> prim2 $ pure . fromBool .: curry \case
-                    (Symbol a, Symbol b) -> a == b
-                    (Character a, Character b) -> a == b
-                    (Stream, Stream) -> False -- @incomplete: what should this be?
-                    (Pair ra, Pair rb) -> ra == rb
-                    _ -> False
-                "join" -> prim2 $ fmap Pair . newRef . MkPair .: (,)
-                "car" -> carAndCdr fst 'a'
-                "cdr" -> carAndCdr snd 'd'
-                "type" -> prim1 $ pure . Symbol . MkSymbol . go where
-                  go = \case
-                    Symbol _ -> 's' :| "ymbol"
-                    Character _ -> 'c' :| "har"
-                    Pair _ -> 'p' :| "air"
-                    Stream -> 's' :| "tream"
-                    WhereResult x -> go x
-                "xar" -> xarAndXdr first
-                "xdr" -> xarAndXdr second
-                "sym" -> prim1 $ \x -> string x >>= \s' -> case s' >>= nonEmpty of
-                  Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
-                  Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
-                    <> rep <> " is not a non-empty string."
-                "nom" -> prim1 $ \case
-                  Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
-                  x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
-                    <> rep <> " is not a symbol."
-                s -> throwE $ "no such primitive: " <> s
-                where prim2 = primitive2 p1 args
-                      prim1 = primitive1 p1 args
-                      carAndCdr fn w = prim1 $ \case
-                        Symbol Nil -> pure $ Symbol Nil
-                        -- If we are inside a "where", return the tuple and our location.
-                        -- Otherwise, we return the normal value.
-                        Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
-                          [] -> pure $ fn tup
-                          _ -> listToPair $ pure <$> [Pair ra, Sym w ""]
-                        o -> repr o >>= \s -> throwE $ toList p1
-                          <> " is only defined on pairs and nil. " <> s <> " is neither of those."
-                      xarAndXdr which = prim2 $ curry \case
-                        (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
-                        (o, _) -> repr o >>= \s -> throwE $ toList p1
-                          <> " is only defined when the first argument is a pair. "
-                          <> s <> " is not a pair."
-            _ -> throwE $ "I don't know how to evaluate this yet"
-      _ -> string x' >>= \case
-        Just _ -> pure x' -- x' is a string, and strings evaluate to themselves
-        Nothing -> throwE $ "I don't know how to evaluate this yet"
-    _ -> throwE $ "I don't know how to evaluate this yet"
 
-excessPrimParams :: NonEmpty Char -> [a] -> Int -> EvalMonad b
+    (Nothing, Nothing) -> giveUp
+
+  WhereResult _ -> giveUp
+
+  where
+    giveUp = repr expr >>= \rep ->
+      throwE $ "I don't know how to evaluate this yet: " <> rep
+
+excessPrimParams :: String -> [a] -> Int -> EvalMonad b
 excessPrimParams nm args n =
-  throwE $ "Too many parameters in call to primitive " <> toList nm
+  throwE $ "Too many parameters in call to primitive " <> nm
     <> ". Got " <> show (length args) <> ", want at most " <> show n <> "."
 
-wrongParamCount :: NonEmpty Char -> [a] -> Int -> EvalMonad b
+wrongParamCount :: String -> [a] -> Int -> EvalMonad b
 wrongParamCount nm args n =
-  throwE $ "Wrong number of parameters in special form " <> toList nm
+  throwE $ "Wrong number of parameters in special form " <> nm
     <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."
-
-specialForm1
-  :: NonEmpty Char
-  -> [Object IORef]
-  -> (Object IORef -> EvalMonad (Object IORef))
-  -> EvalMonad (Object IORef)
-specialForm1 nm args f = case args of
-  [a] -> f a
-  _ -> wrongParamCount nm args 1
-
-specialForm2
-  :: NonEmpty Char
-  -> [Object IORef]
-  -> (Object IORef -> Object IORef -> EvalMonad (Object IORef))
-  -> EvalMonad (Object IORef)
-specialForm2 nm args f = case args of
-  [a, b] -> f a b
-  _ -> wrongParamCount nm args 2
-
-specialForm3
-  :: NonEmpty Char
-  -> [Object IORef]
-  -> (Object IORef -> Object IORef -> Object IORef -> EvalMonad (Object IORef))
-  -> EvalMonad (Object IORef)
-specialForm3 nm args f = case args of
-  [a, b, c] -> f a b c
-  _ -> wrongParamCount nm args 3
-
-primitive1
-  :: NonEmpty Char
-  -> [Object IORef]
-  -> (Object IORef -> EvalMonad (Object IORef))
-  -> EvalMonad (Object IORef)
-primitive1 nm args f = case args of
-  [] -> call (Symbol Nil)
-  [a] -> call a
-  _ -> excessPrimParams nm args 1
-  where
-    call a = do
-      a' <- evaluate a
-      f a'
-
-primitive2
-  :: NonEmpty Char
-  -> [Object IORef]
-  -> (Object IORef -> Object IORef -> EvalMonad (Object IORef))
-  -> EvalMonad (Object IORef)
-primitive2 nm args f = case args of
-  [] -> call (Symbol Nil) (Symbol Nil)
-  [a] -> call a (Symbol Nil)
-  [a, b] -> call a b
-  _ -> excessPrimParams nm args 2
-  where
-    call a b = do
-      a' <- evaluate a
-      b' <- evaluate b
-      f a' b'
 
 fromBool :: Bool -> Object r
 fromBool = \case

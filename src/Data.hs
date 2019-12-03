@@ -58,10 +58,14 @@ newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
 newtype Pair m = MkPair { unPair :: (Object m, Object m) }
 newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
 
+properList1 :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
+properList1 ref = readRef ref >>=
+  \(MkPair (car, cdr)) -> fmap (car :|) <$> properList cdr
+
 properList :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])
 properList = \case
   Symbol Nil -> pure (Just [])
-  Pair ref -> readRef ref >>= \(MkPair (car, cdr)) -> fmap (car :) <$> properList cdr
+  Pair ref -> toList <$$> properList1 ref
   _ -> pure Nothing
 
 properListOf :: (MonadRef m, r ~ Ref m) => Object r -> (Object r -> MaybeT m a) -> MaybeT m [a]
