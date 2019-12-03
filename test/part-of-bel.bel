@@ -1,0 +1,4 @@
+; prefix of bel.bel -- as much as we can interpret so far
+
+(def no (x)
+  (id x nil))

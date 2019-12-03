@@ -201,6 +201,13 @@ evaluate = \case
           "set" -> form2 $ \var val -> case var of
             Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
             _ -> throwE "set takes a symbol as its first argument"
+          -- @incomplete: this is just an approximation, since I haven't learned
+          -- yet what the full scope of def is.
+          "def" -> form3 $ \n p e -> do
+            -- @factoring: this should just say "evaluate (set n (lit clo nil p e))"
+            -- see if I can make that more obvious
+            f' <- listToPair (pure <$> [Sym 'l' "it", Sym 'c' "lo", Symbol Nil, p, e])
+            evaluate =<< listToPair (pure <$> [Sym 's' "et", n, f'])
           _ -> envLookup (MkSymbol f) >>= properList >>= \case
             Just [Sym 'l' "it", Sym 'p' "rim", Symbol (MkSymbol p1@(toList -> p))] ->
               case p of
@@ -340,6 +347,9 @@ readThenRunEval p c s = flip runEval s $ readThenEval p c
 
 builtinsIO :: IO EvalState
 builtinsIO = snd <$> runEval builtins emptyState
+
+bel :: FilePath -> IO (Either Error (Object IORef), EvalState)
+bel f = builtinsIO >>= \b -> readFile f >>= \s -> readThenRunEval f s b
 
 repl :: IO ()
 repl = builtinsIO >>= go where

@@ -20,7 +20,7 @@ listToPair' :: [Object Identity] -> Object Identity
 listToPair' = runIdentity . listToPair . (fmap Identity)
 
 sc :: Parser ()
-sc = L.space space1 empty empty
+sc = L.space space1 (L.skipLineComment ";") empty
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc

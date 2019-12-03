@@ -149,6 +149,15 @@ spec = do
       >> "x"
       > "a"
 
+  describe "bel-in-bel" do
+    -- Interpret bel.bel and check that the functions it defines
+    -- work as they are specified to in bellanguage.txt.
+
+    let is = evalInPreludeShouldBe
+
+    it "interprets bel.bel correctly" do
+      "(no nil)" `is` "t"
+
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
 
@@ -162,15 +171,21 @@ parseThenPrintShouldBe a b =
 -- ----------------------------------------------------------------------------
 --                           eval test helpers
 
-eval :: String -> IO (Object IORef)
-eval s =
-   fst <$> (builtinsIO >>= readThenRunEval "test case" s) >>=
+evalIn :: String -> EvalState -> IO (Object IORef)
+evalIn s state =
+   fst <$> readThenRunEval "test case" s state >>=
      either
        (\e -> undefined <$> (expectationFailure $ s <> ": " <> e))
        pure
 
+evalInShouldBe :: String -> String -> EvalState -> Expectation
+evalInShouldBe a b = evalIn a >=> repr >=> flip (assertEqual $ "> " <> a) b
+
+eval :: String -> IO (Object IORef)
+eval s = builtinsIO >>= evalIn s
+
 evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b = eval a >>= (repr >=> flip (assertEqual $ "> " <> a) b)
+evalShouldBe a b = builtinsIO >>= evalInShouldBe a b
 
 evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
 evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
@@ -205,3 +220,19 @@ replInput = (,)
 
 replOutput :: ([(String, String)], String) -> String -> [(String, String)]
 replOutput (ios, i) o = (i, o) : ios
+
+-- ----------------------------------------------------------------------------
+--                     bel-in-bel test helpers
+
+interpretPrelude :: IO EvalState
+interpretPrelude = do
+  let input = "test/part-of-bel.bel"
+  (x, s) <- bel input
+  either
+    (\e -> void $ expectationFailure $ "failed to parse " <> input <> ": " <> e)
+    (const $ pure ())
+    x
+  pure s
+
+evalInPreludeShouldBe :: String -> String -> Expectation
+evalInPreludeShouldBe a b = interpretPrelude >>= evalInShouldBe a b
