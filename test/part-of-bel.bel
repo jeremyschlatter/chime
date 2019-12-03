@@ -5,3 +5,8 @@
 
 (def atom (x)
   (no (id (type x) 'pair)))
+
+(def all (f xs)
+  (if (no xs)      t
+      (f (car xs)) (all f (cdr xs))
+                   nil))

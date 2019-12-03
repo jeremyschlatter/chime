@@ -118,8 +118,7 @@ bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
 bindVars bindings = \case
   -- @incomplete: Do I need to change behavior here when inside where?
   s@(Symbol s') -> pure $ maybe s id $ lookup s' bindings
-  p@(Pair r) -> doMod $> p where
-    doMod = modifyRefM r \(MkPair (car, cdr)) -> liftA2 (MkPair .: (,))
+  Pair r -> readRef r >>= \(MkPair (car, cdr)) -> fmap Pair $ newRef =<< liftA2 (MkPair .: (,))
       (bindVars bindings car)
       (bindVars bindings cdr)
   x -> pure x
