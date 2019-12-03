@@ -124,6 +124,15 @@ bindVars bindings = \case
       (bindVars bindings cdr)
   x -> pure x
 
+toMaybeT :: EvalMonad a -> MaybeT EvalMonad a
+toMaybeT m = MaybeT $ catchE (Just <$> m) (const $ pure Nothing)
+
+doStuff :: EvalMonad (Object IORef) -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
+doStuff = runMaybeT . (toMaybeT >=> (MaybeT . function))
+
+evaluatesToFunction :: Object IORef -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
+evaluatesToFunction = runMaybeT . (toMaybeT >=> (MaybeT . function)) . evaluate
+
 evaluate :: Object IORef -> EvalMonad (Object IORef)
 evaluate = \case
   c@(Character _) -> pure c
@@ -136,7 +145,7 @@ evaluate = \case
       getEnv = use >=>
         listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol))
   x' -> properList x' >>= \case
-    Just (op' : args) -> (,op') <$> function op' >>= \case
+    Just (op' : args) -> (,op') <$> evaluatesToFunction op' >>= \case
       (Just (env, params, body), _) ->
         let (nArgs, nParams) = (length args, length params) in
         case compare nArgs nParams of
