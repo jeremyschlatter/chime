@@ -133,6 +133,9 @@ doStuff = runMaybeT . (toMaybeT >=> (MaybeT . function))
 evaluatesToFunction :: Object IORef -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
 evaluatesToFunction = runMaybeT . (toMaybeT >=> (MaybeT . function)) . evaluate
 
+quote :: Object IORef -> EvalMonad (Object IORef)
+quote x = pureListToPair [Sym 'q' "uote", x]
+
 evaluate :: Object IORef -> EvalMonad (Object IORef)
 evaluate = \case
   c@(Character _) -> pure c
@@ -154,7 +157,7 @@ evaluate = \case
           GT -> throwE $ "Too many arguments in function call."
             <> " Got " <> show nArgs <> ", want " <> show nParams <> "."
           EQ -> do
-            args' <- traverse evaluate args
+            args' <- traverse (evaluate >=> quote) args
             let bindings = zipWith (,) params args' <> env
             bindVars bindings body >>= evaluate
       (_, Symbol (MkSymbol f)) ->
@@ -184,7 +187,6 @@ evaluate = \case
                     <> "(apply should accept non-proper lists in some cases, but "
                     <> "that has not been implemented yet)."
                   Just lst -> go' acc lst where
-                    quote x = listToPair [pure $ Sym 'q' "uote", pure x]
                     go' acc' = \case
                       [] -> listToPair (pure (head ll) : fmap quote (tail ll)) >>= evaluate
                         where ll = NE.reverse acc'

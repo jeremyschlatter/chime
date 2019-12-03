@@ -108,7 +108,7 @@ spec = do
       "(if nil 'a  nil 'b 'c)" `is` "c"
       "(where (cdr '(a b c)))" `is` "((a b c) d)" -- based on (where (cdr x)) from the spec
       "(after a 'b)" `is` "b"
-      "((lit clo nil (x) (join x 'b)) ''a)" `is` "(a . b)"
+      "((lit clo nil (x) (join x 'b)) 'a)" `is` "(a . b)"
 
   describe "multi-line repl sessions" do
 
@@ -157,6 +157,7 @@ spec = do
 
     it "interprets bel.bel correctly" do
       "(no nil)" `is` "t"
+      "(no 'a)" `is` "nil"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers

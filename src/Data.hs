@@ -72,6 +72,9 @@ string x = runMaybeT $ properListOf x \case
   Character c -> pure c
   _ -> empty
 
+pureListToPair :: (MonadRef m, r ~ Ref m) => [Object r] -> m (Object r)
+pureListToPair = listToPair . fmap pure
+
 listToPair :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
 listToPair = \case
   [] -> pure $ Symbol Nil
