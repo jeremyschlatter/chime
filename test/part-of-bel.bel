@@ -2,3 +2,6 @@
 
 (def no (x)
   (id x nil))
+
+(def atom (x)
+  (no (id (type x) 'pair)))

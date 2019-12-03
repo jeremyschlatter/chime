@@ -15,7 +15,7 @@ import Control.Monad.Trans.Class
 
 import Common
 import Data
-import Parse (isEmptyLine, parse, errorBundlePretty)
+import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
 
 type Error = String
 
@@ -359,15 +359,18 @@ readThenRunEval p c s = flip runEval s $ readThenEval p c
 builtinsIO :: IO EvalState
 builtinsIO = snd <$> runEval builtins emptyState
 
-bel :: FilePath -> IO (Either Error (Object IORef), EvalState)
-bel f = builtinsIO >>= \b -> readFile f >>= \s -> readThenRunEval f s b
+bel :: FilePath -> IO (Either Error EvalState)
+bel f = builtinsIO >>= \b -> readFile f >>= \s0 -> do
+  prog <- either (die . errorBundlePretty) id (parseMany f s0)
+  (x, s) <- runEval (traverse_ evaluate prog) b
+  pure (x $> s)
 
 repl :: IO ()
 repl = do
   args <- getArgs
   s <- case args of
     [] -> builtinsIO
-    [f] -> bel f >>= \(x, s) -> either die (const $ pure s) x
+    [f] -> bel f >>= \es -> either die pure es
     _ -> die "Sorry, I can only handle up to one file"
   go s where
   go s = do

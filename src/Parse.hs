@@ -67,5 +67,9 @@ parse :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> Either (ParseErrorBundle String Void) (m (Object r))
 parse = M.parse (runIdentity . refSwap <$> (sc *> expression <* eof))
 
+parseMany :: (MonadRef m, r ~ Ref m)
+  => FilePath -> String -> Either (ParseErrorBundle String Void) (m [Object r])
+parseMany = M.parse (traverse (runIdentity . refSwap) <$> (sc *> many expression <* eof))
+
 isEmptyLine :: String -> Bool
 isEmptyLine = isJust . parseMaybe (sc *> eof)

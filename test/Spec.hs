@@ -159,6 +159,9 @@ spec = do
       "(no nil)" `is` "t"
       "(no 'a)" `is` "nil"
 
+failure :: String -> IO a
+failure = fmap undefined . expectationFailure
+
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
 
@@ -228,12 +231,11 @@ replOutput (ios, i) o = (i, o) : ios
 interpretPrelude :: IO EvalState
 interpretPrelude = do
   let input = "test/part-of-bel.bel"
-  (x, s) <- bel input
+  es <- bel input
   either
-    (\e -> void $ expectationFailure $ "failed to parse " <> input <> ": " <> e)
-    (const $ pure ())
-    x
-  pure s
+    (\e -> failure $ "failed to parse " <> input <> ": " <> e)
+    pure
+    es
 
 evalInPreludeShouldBe :: String -> String -> Expectation
 evalInPreludeShouldBe a b = interpretPrelude >>= evalInShouldBe a b
