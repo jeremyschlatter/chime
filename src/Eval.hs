@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude hiding (evaluate, getEnv, head, tail)
+import BasePrelude hiding (evaluate, getEnv, head, tail, (-), (*))
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Trans.Except
@@ -57,13 +57,18 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
   , ("outs", sym "nil")
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
-              pure . Character . MkCharacter . bool '0' '1' . testBit w <$> [0..7]
-      in listToPair $ flip fmap [0..127] \i -> do
-           let car = Character $ MkCharacter $ chr i
-           cdr <- listToPair $ convert $ encodeUtf8 $ singleton $ chr i
-           Pair <$> (newRef $ MkPair (car, cdr))
+              toObject . bool '0' '1' . testBit w <$> [0..7]
+
+      in listToObject $ flip fmap [0..127] \i ->
+           chr i .* (
+            listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
+          )
+
+--       in toObject $ flip fmap [0..127] \i ->
+--            chr i ~~ convert $ encodeUtf8 $ singleton $ chr i
+
     )
-  ] <> fmap (\p -> (p, listToPair [sym "lit", sym "prim", sym p]))
+  ] <> fmap (\p -> (p, "lit" ~~ "prim" ~| p))
     [ "id"
     , "join"
     , "car"
@@ -113,9 +118,8 @@ bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
 bindVars bindings = \case
   -- @incomplete: Do I need to change behavior here when inside where?
   s@(Symbol s') -> pure $ maybe s id $ lookup s' bindings
-  Pair r -> readRef r >>= \(MkPair (car, cdr)) -> fmap Pair $ newRef =<< liftA2 (MkPair .: (,))
-      (bindVars bindings car)
-      (bindVars bindings cdr)
+  Pair r -> readRef r >>= \(MkPair (car, cdr)) ->
+    bindVars bindings car .* bindVars bindings cdr
   x -> pure x
 
 data Operator
@@ -171,7 +175,7 @@ specialForms = (\f -> (formName f, f)) <$>
             <> "that has not been implemented yet)."
           Just lst -> go' acc lst where
             go' acc' = \case
-              [] -> listToPair (pure (head ll) : fmap quote (tail ll)) >>= evaluate
+              [] -> listToObject (pure (head ll) : fmap quote (tail ll)) >>= evaluate
                 where ll = NE.reverse acc'
               c:cs -> go' (c<|acc') cs
       badParams = throwE "apply requires at least two parameters"
@@ -199,11 +203,8 @@ specialForms = (\f -> (formName f, f)) <$>
       _ -> throwE "set takes a symbol as its first argument"
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
-  , Form3 "def" \n p e -> do
-      -- @factoring: this should just say "evaluate (set n (lit clo nil p e))"
-      -- see if I can make that more obvious
-      f' <- listToPair (pure <$> [Sym 'l' "it", Sym 'c' "lo", Symbol Nil, p, e])
-      evaluate =<< listToPair (pure <$> [Sym 's' "et", n, f'])
+  , Form3 "def" \n p e -> evaluate =<<
+      ("set" ~~ n ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e))
 
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
@@ -212,16 +213,26 @@ specialForms = (\f -> (formName f, f)) <$>
           (Sym '~' "comma", x) -> Left <$> evaluate x
           (Sym '~' "splice", x) -> Right <$> evaluate x
           _ -> bimapM go go p >>= \(x, either id id -> cdr) -> Left <$> case x of
-            Left car -> fmap Pair . newRef $ MkPair (car, cdr)
+            Left car -> car .* cdr
             Right prefix -> append prefix cdr
         x -> pure $ Left x
       in fmap (either id id) . go
-
   ]
+
+-- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
+(~~) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
+     => a -> b -> EvalMonad (Object IORef)
+(~~) = (.*)
+infixr 4 ~~
+(~|) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
+     => a -> b -> EvalMonad (Object IORef)
+(~|) = (.|)
+infixr 4 ~|
+
 
 append :: Object IORef -> Object IORef -> EvalMonad (Object IORef)
 append a b = bimapM properList properList (a, b) >>= \case
-  (Just a', Just b') -> pureListToPair $ a' <> b'
+  (Just a', Just b') -> listToObject . fmap pure $ a' <> b'
   _ -> throwE "non-lists in splice"
 
 data Primitive
@@ -246,7 +257,7 @@ primitives = (\p -> (primName p, p)) <$>
       (Stream, Stream) -> False -- @incomplete: what should this be?
       (Pair ra, Pair rb) -> ra == rb
       _ -> False
-  , Prim2 "join" $ fmap Pair . newRef . MkPair .: (,)
+  , Prim2 "join" (.*)
   , carAndCdr "car" fst 'a'
   , carAndCdr "cdr" snd 'd'
   , Prim1 "type" $ let
@@ -264,7 +275,7 @@ primitives = (\p -> (primName p, p)) <$>
       Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
         <> rep <> " is not a non-empty string."
   , Prim1 "nom" \case
-      Sym n ame -> listToPair (pure . Character . MkCharacter <$> (n:ame))
+      Sym n ame -> listToObject (toObject <$> n:ame)
       x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
         <> rep <> " is not a symbol."
   ] where
@@ -274,7 +285,7 @@ primitives = (\p -> (primName p, p)) <$>
         -- Otherwise, we return the normal value.
         Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
           [] -> pure $ fn tup
-          _ -> listToPair $ pure <$> [Pair ra, Sym w ""]
+          _ -> Pair ra ~| Sym @IORef w ""
         o -> repr o >>= \s -> throwE $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
@@ -328,9 +339,7 @@ evaluate expr = case expr of
     "globe" -> getEnv globe
     "scope" -> getEnv scope
     _ -> envLookup s
-    where
-      getEnv = use >=>
-        listToPair . (fmap (fmap Pair . newRef . MkPair . first Symbol))
+    where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
   -- pairs
   Pair ref -> liftA2 (,) (string expr) (properList1 ref) >>= \case
@@ -362,7 +371,7 @@ evaluate expr = case expr of
         FormN _ f -> f args
         Lit -> pure expr
       Closure env params body -> do
-        bound <- (traverse evaluate >=> pureListToPair >=> destructure params) args
+        bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
         boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
         -- @perf this listToPair could be avoided if destructure operated on lists
         bindVars (boundAndQuoted <> env) body >>= evaluate

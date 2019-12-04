@@ -4,6 +4,7 @@ module Data where
 import BasePrelude
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Data.Bitraversable
 
 import Common
 
@@ -39,6 +40,38 @@ data Object r
   | Stream
   | WhereResult (Object r)
 
+class ToObject m r x where
+  toObject :: (MonadRef m, r ~ Ref m) => x -> m (Object r)
+instance ToObject m r Symbol where
+  toObject = pure . Symbol
+instance ToObject m r Char where
+  toObject = pure . Character . MkCharacter
+instance ToObject m r String where
+  toObject = \case
+    [] -> error "developer error: tried to convert empty string to symbol"
+    s:tring -> pure $ Symbol $ MkSymbol $ s:|tring
+instance ToObject m r (Object r) where
+  toObject = pure
+instance ToObject m r (m (Object r)) where
+  toObject = id
+instance ToObject m r [m (Object r)] where
+  toObject = \case
+    [] -> toObject "nil"
+    x:xs -> x .* toObject @m @r xs
+
+-- toObject specialized to [m (Object r)]
+listToObject :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
+listToObject = toObject
+
+(.*) :: forall m r a b. (MonadRef m, r ~ Ref m, ToObject m r a, ToObject m r b)
+     => a -> b -> m (Object r)
+(.*) = fmap Pair . ((newRef . MkPair) =<<) . bimapM (toObject @m) (toObject @m) .: (,)
+infixr 4 .*
+(.|) :: forall m r a b. (MonadRef m, r ~ Ref m, ToObject m r a, ToObject m r b)
+     => a -> b -> m (Object r)
+a .| b = a .* ((.*) @m b "nil") where
+infixr 4 .|
+
 refSwap :: (MonadRef a, MonadRef b, ra ~ Ref a, rb ~ Ref b) => Object ra -> a (b (Object rb))
 refSwap = \case
   WhereResult x -> WhereResult <$$> refSwap x
@@ -52,10 +85,10 @@ refSwap = \case
     pure $ do
       car'' <- car'
       cdr'' <- cdr'
-      Pair <$> (newRef $ MkPair (car'', cdr''))
+      car'' .* cdr''
 
 newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
-newtype Pair m = MkPair { unPair :: (Object m, Object m) }
+newtype Pair r = MkPair { unPair :: (Object r, Object r) }
 newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
 
 properList1 :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
@@ -77,20 +110,9 @@ string x = runMaybeT $ properListOf x \case
   _ -> empty
 
 quote :: (MonadRef m, r ~ Ref m) => Object r -> m (Object r)
-quote x = pureListToPair [Sym 'q' "uote", x]
+quote = ("quote" .|)
 
-pureListToPair :: (MonadRef m, r ~ Ref m) => [Object r] -> m (Object r)
-pureListToPair = listToPair . fmap pure
-
-listToPair :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
-listToPair = \case
-  [] -> pure $ Symbol Nil
-  x:xs -> do
-    car <- x
-    cdr <- listToPair xs
-    Pair <$> newRef (MkPair (car, cdr))
-
-pattern Sym       :: Char -> String -> Object s
+pattern Sym       :: Char -> String -> Object r
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
 
 quoted :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (Object r))

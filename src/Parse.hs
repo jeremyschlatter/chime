@@ -17,7 +17,7 @@ import Data hiding (string)
 type Parser = Parsec Void String
 
 listToPair' :: [Object Identity] -> Object Identity
-listToPair' = runIdentity . listToPair . (fmap Identity)
+listToPair' = runIdentity . toObject . (fmap Identity)
 
 sc :: Parser ()
 sc = L.space space1 (L.skipLineComment ";") empty
@@ -53,14 +53,13 @@ character :: Parser Character
 character = character' $ char '\\' *> lexeme letterChar
 
 quotedExpression :: Parser (Object Identity)
-quotedExpression = char '\'' *> expression <&> \x ->
-  listToPair' [Symbol (MkSymbol ('q' :| "uote")), x]
+quotedExpression = char '\'' *> expression <&> runIdentity . quote
 
 backQuotedList :: Parser (Object Identity)
 backQuotedList = char '`' *> surround "(" ")" (many expression) <&> backquote . listToPair'
   where
     -- @incomplete: implement this in a way that cannot clash with user symbols
-    backquote x = runIdentity $ pureListToPair [Sym '~' "backquote", x]
+    backquote = runIdentity . ("~backquote" .|)
 
 commaExpr :: Parser (Object Identity)
 commaExpr = char ',' *> (atExpr <|> expr) where
