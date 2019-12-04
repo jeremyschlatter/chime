@@ -56,9 +56,25 @@ quotedExpression :: Parser (Object Identity)
 quotedExpression = char '\'' *> expression <&> \x ->
   listToPair' [Symbol (MkSymbol ('q' :| "uote")), x]
 
+backQuotedList :: Parser (Object Identity)
+backQuotedList = char '`' *> surround "(" ")" (many expression) <&> backquote . listToPair'
+  where
+    -- @incomplete: implement this in a way that cannot clash with user symbols
+    backquote x = runIdentity $ pureListToPair [Sym '~' "backquote", x]
+
+commaExpr :: Parser (Object Identity)
+commaExpr = char ',' *> (atExpr <|> expr) where
+  expr = expression <&> \x ->
+    -- @incomplete: implement this in a way that cannot clash with user symbols
+    Pair $ Identity $ MkPair (Sym '~' "comma", x)
+  atExpr = char '@' *> expression <&> \x ->
+    Pair $ Identity $ MkPair (Sym '~' "splice", x)
+
 expression :: Parser (Object Identity)
 expression =  (Symbol <$> symbol)
           <|> quotedExpression
+          <|> backQuotedList
+          <|> commaExpr
           <|> string
           <|> (Pair . Identity <$> pair)
           <|> (Character <$> character)

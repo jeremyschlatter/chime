@@ -7,6 +7,7 @@ import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
+import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
@@ -117,9 +118,6 @@ bindVars bindings = \case
       (bindVars bindings cdr)
   x -> pure x
 
-quote :: Object IORef -> EvalMonad (Object IORef)
-quote x = pureListToPair [Sym 'q' "uote", x]
-
 data Operator
   = Primitive Primitive
   | SpecialForm SpecialForm
@@ -206,7 +204,25 @@ specialForms = (\f -> (formName f, f)) <$>
       -- see if I can make that more obvious
       f' <- listToPair (pure <$> [Sym 'l' "it", Sym 'c' "lo", Symbol Nil, p, e])
       evaluate =<< listToPair (pure <$> [Sym 's' "et", n, f'])
+
+  -- @incomplete: implement this in a way that cannot clash with user symbols
+  , Form1 "~backquote" let
+      go = \case
+        Pair ref -> readRef ref >>= \(MkPair p) -> case p of
+          (Sym '~' "comma", x) -> Left <$> evaluate x
+          (Sym '~' "splice", x) -> Right <$> evaluate x
+          _ -> bimapM go go p >>= \(x, either id id -> cdr) -> Left <$> case x of
+            Left car -> fmap Pair . newRef $ MkPair (car, cdr)
+            Right prefix -> append prefix cdr
+        x -> pure $ Left x
+      in fmap (either id id) . go
+
   ]
+
+append :: Object IORef -> Object IORef -> EvalMonad (Object IORef)
+append a b = bimapM properList properList (a, b) >>= \case
+  (Just a', Just b') -> pureListToPair $ a' <> b'
+  _ -> throwE "non-lists in splice"
 
 data Primitive
   = Prim1 String (Object IORef -> EvalMonad (Object IORef))

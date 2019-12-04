@@ -149,12 +149,18 @@ spec = do
       >> "x"
       > "a"
 
---     it "understands backquote" $ replTest $ []
---       >> "(set x 'a)"
---       > "a"
---       >> "`(x ,x y)"
---       > "(x a y)"
---       -- @incomplete: add `(x ,x y ,(+ 1 2))` when numbers are working
+    it "understands backquote" $ replTest $ []
+      >> "(set x 'a)"
+      > "a"
+      >> "`(x ,x y)"
+      > "(x a y)"
+      -- @incomplete: uncomment when numbers are working
+      -- >> `(x ,x y ,(+ 1 2))
+      -- > "(x a y 3)"
+      >> "(set y '(c d))"
+      > "(c d)"
+      >> "`(a b ,@y e f)"
+      > "(a b c d e f)"
 
 --     it "destructures arguments" $ replTest $ []
 --       >> "(def f (x . y) `((x . ,x) (y . ,y))"

@@ -76,6 +76,9 @@ string x = runMaybeT $ properListOf x \case
   Character c -> pure c
   _ -> empty
 
+quote :: (MonadRef m, r ~ Ref m) => Object r -> m (Object r)
+quote x = pureListToPair [Sym 'q' "uote", x]
+
 pureListToPair :: (MonadRef m, r ~ Ref m) => [Object r] -> m (Object r)
 pureListToPair = listToPair . fmap pure
 
