@@ -103,15 +103,20 @@ envLookup s = do
     -- @incomplete: change behavior inside where
     (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
 
-function :: [Object IORef] -> EvalMonad (Maybe (Environment, Object IORef, Object IORef))
-function x = runMaybeT $ case x of
+function :: [Object IORef] -> MaybeT EvalMonad Closure
+function x = case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
       Pair r -> readRef r >>= \(MkPair tup) -> case tup of
         (Symbol var, val) -> pure (var, val)
         _ -> empty
       _ -> empty
-    pure (env', params, body)
+    pure $ MkClosure env' params body
+  _ -> empty
+
+macro :: [Object IORef] -> MaybeT EvalMonad Closure
+macro = \case
+  [Sym 'l' "it", Sym 'm' "ac", m] -> MaybeT (properList m) >>= function
   _ -> empty
 
 bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
@@ -125,7 +130,10 @@ bindVars bindings = \case
 data Operator
   = Primitive Primitive
   | SpecialForm SpecialForm
-  | Closure Environment (Object IORef) (Object IORef)
+  | Macro Closure
+  | Closure Closure
+
+data Closure = MkClosure Environment (Object IORef) (Object IORef)
 
 data ListExpr
   = StringExpr
@@ -217,6 +225,9 @@ specialForms = (\f -> (formName f, f)) <$>
             Right prefix -> append prefix cdr
         x -> pure $ Left x
       in fmap (either id id) . go
+
+  , Form3 "mac" \n p e -> evaluate =<<
+      ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
   ]
 
 -- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
@@ -299,7 +310,7 @@ operator = \case
   (specialForm -> Just f) -> pure $ Just $ SpecialForm f
   x -> evaluate x >>= \x' -> properList x' >>= \case
     (Just (primitive -> Just f)) -> pure $ Just $ Primitive f
-    (Just l)  -> (\(e, p, b) -> Closure e p b) <$$> function l
+    (Just l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
     Nothing -> pure Nothing
 
 destructure :: Object IORef -> Object IORef -> EvalMonad Environment
@@ -342,41 +353,46 @@ evaluate expr = case expr of
     where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
   -- pairs
-  Pair ref -> liftA2 (,) (string expr) (properList1 ref) >>= \case
-    -- strings
-    (Just _, _) -> pure expr
+  Pair ref -> readRef ref >>= \(MkPair (_, argTree)) ->
+    liftA2 (,) (string expr) (properList1 ref) >>= \case
 
-    -- operators with arguments
-    (_, Just (op :| args)) -> operator op >>= maybe giveUp \case
-      Primitive p -> case p of
-        Prim1 nm f -> case args of
-          [] -> call (Symbol Nil)
-          [a] -> call a
-          _ -> excessPrimParams nm args 1
-          where call = evaluate >=> f
-        Prim2 nm f -> case args of
-          [] -> call (Symbol Nil) (Symbol Nil)
-          [a] -> call a (Symbol Nil)
-          [a,b] -> call a b
-          _ -> excessPrimParams nm args 2
-          where
-            call a b = do
-              a' <- evaluate a
-              b' <- evaluate b
-              f a' b'
-      SpecialForm form -> case form of
-        Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
-        Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
-        Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
-        FormN _ f -> f args
-        Lit -> pure expr
-      Closure env params body -> do
-        bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-        boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
-        -- @perf this listToPair could be avoided if destructure operated on lists
-        bindVars (boundAndQuoted <> env) body >>= evaluate
+      -- strings
+      (Just _, _) -> pure expr
 
-    (Nothing, Nothing) -> giveUp
+      -- operators with arguments
+      (_, Just (op :| args)) -> operator op >>= maybe giveUp \case
+        Primitive p -> case p of
+          Prim1 nm f -> case args of
+            [] -> call (Symbol Nil)
+            [a] -> call a
+            _ -> excessPrimParams nm args 1
+            where call = evaluate >=> f
+          Prim2 nm f -> case args of
+            [] -> call (Symbol Nil) (Symbol Nil)
+            [a] -> call a (Symbol Nil)
+            [a,b] -> call a b
+            _ -> excessPrimParams nm args 2
+            where
+              call a b = do
+                a' <- evaluate a
+                b' <- evaluate b
+                f a' b'
+        SpecialForm form -> case form of
+          Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
+          Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
+          Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
+          FormN _ f -> f args
+          Lit -> pure expr
+        Closure (MkClosure env params body) -> do
+          bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
+          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
+          bindVars (boundAndQuoted <> env) body >>= evaluate
+        Macro (MkClosure env params body) -> do
+          bound <- destructure params argTree
+          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
+          bindVars (boundAndQuoted <> env) body >>= evaluate >>= evaluate
+
+      (Nothing, Nothing) -> giveUp
 
   WhereResult _ -> giveUp
 

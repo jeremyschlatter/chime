@@ -109,6 +109,7 @@ spec = do
       "(where (cdr '(a b c)))" `is` "((a b c) d)" -- based on (where (cdr x)) from the spec
       "(after a 'b)" `is` "b"
       "((lit clo nil (x) (join x 'b)) 'a)" `is` "(a . b)"
+      "(mac n p e)" `is` "(lit mac (lit clo nil p e))"
 
   describe "multi-line repl sessions" do
 
@@ -181,6 +182,11 @@ spec = do
 --       >> "(f '(a b c) '(d))"
 --       > "<error>
 
+    it "implements macros" $ replTest $ []
+      >> "(mac nilwith (x) `(join nil ,x))"
+      > "..."
+      >>  "(nilwith 'a)"
+      > "(nil . a)"
 
   describe "bel-in-bel" do
     -- Interpret bel.bel and check that the functions it defines
@@ -270,7 +276,7 @@ replTest = bind builtinsIO . go [] . reverse where
       (x, s') <- readThenRunEval ("line " <> show (length prev)) in_ state
       either
         (expectationFailure . (clear (prefix <> "\n") <>) . red)
-        (repr >=> assertEqual prefix out)
+        (if out == "..." then const $ pure () else (repr >=> assertEqual prefix out))
         x
       go (out : "> " <> in_ : prev) rest s'
 
