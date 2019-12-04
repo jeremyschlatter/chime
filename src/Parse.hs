@@ -29,7 +29,7 @@ lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
 symbol :: Parser Symbol
-symbol = (lexeme $ some1 letterChar <&> MkSymbol) <|> try (lexLit "(" *> lexLit ")" $> Nil)
+symbol = (lexeme $ some1 alphaNumChar <&> MkSymbol) <|> try (lexLit "(" *> lexLit ")" $> Nil)
 
 surround :: String -> String -> Parser a -> Parser a
 surround a b x = lexLit a *> x <* lexLit b
