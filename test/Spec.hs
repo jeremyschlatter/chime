@@ -37,7 +37,7 @@ spec = do
       "(a b . c)" `is` "(a b . c)"
       "(\\h \\e \\l \\l \\o)" `is` "\"hello\""
       "\"hello\"" `is` "\"hello\""
-      "'a" `is` "(quote a)"
+      "'a" `is` "'a"
 
     it "parses and prints other examples" do
       "( )" `is` "nil"
@@ -149,6 +149,33 @@ spec = do
       >> "x"
       > "a"
 
+--     it "understands backquote" $ replTest $ []
+--       >> "(set x 'a)"
+--       > "a"
+--       >> "`(x ,x y)"
+--       > "(x a y)"
+--       -- @incomplete: add `(x ,x y ,(+ 1 2))` when numbers are working
+
+--     it "destructures arguments" $ replTest $ []
+--       >> "(def f (x . y) `((x . ,x) (y . ,y))"
+--       > "<ignore>"
+--       >> "(f 'a 'b 'c)"
+--       > "((x . a) (y . (b c))"
+--       >> "(f 'a)"
+--       > "((x . a) (y . nil))"
+--       >> "(f)"
+--       > "<error>"
+--
+--       >> "(def f ((x y) z) `((x . ,x) (y . ,y) (z . ,z))"
+--       > "<ignore>"
+--       >> "(f '(a (b c)) '(d))"
+--       > "((x . a) (y . (b c)) (z . (d))"
+--       >> "(f '(a) '(d))"
+--       > "<error>"
+--       >> "(f '(a b c) '(d))"
+--       > "<error>
+
+
   describe "bel-in-bel" do
     -- Interpret bel.bel and check that the functions it defines
     -- work as they are specified to in bellanguage.txt.
@@ -168,10 +195,9 @@ spec = do
       "(some atom '((a b) (c d)))" `is` "nil"
       "(some atom '((a b) c (d e)))" `is` "(c (d e))"
       "(reduce join '(a b c))" `is` "(a b . c)"
-
---       "(cons 'a '(b c))" `is` "(a b c)"
---       "(join 'a '(b c))" `is` "(a b c)"
---       "(cons 'a 'b 'c '(d e f))" `is` "(a b c d e f)"
+      "(cons 'a '(b c))" `is` "(a b c)"
+      "(join 'a '(b c))" `is` "(a b c)"
+      "(cons 'a 'b 'c '(d e f))" `is` "(a b c d e f)"
 --       "(append '(a b c) '(d e f))" `is` "(a b c d e f)"
 --       "(append '(a) nil '(b c) '(d e f))" `is` "(a b c d e f)"
 --       "(snoc '(a b c) 'd 'e)" `is` "(a b c d e)"

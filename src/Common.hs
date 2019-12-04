@@ -14,6 +14,10 @@ infixr 8 .:
 infixl 5 <%>
 {-# INLINE (<%>) #-}
 
+(<&&>) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
+(<&&>) = flip $ fmap . fmap
+infixl 1 <&&>
+
 (<$$>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
 (<$$>) = fmap . fmap
 infixl 4 <$$>

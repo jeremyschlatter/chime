@@ -87,6 +87,14 @@ listToPair = \case
     cdr <- listToPair xs
     Pair <$> newRef (MkPair (car, cdr))
 
+pattern Sym       :: Char -> String -> Object s
+pattern Sym n ame = Symbol (MkSymbol (n :| ame))
+
+quoted :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (Object r))
+quoted r = runMaybeT $ MaybeT (properList1 r) >>= \case
+  Sym 'q' "uote" :| [x] -> pure x
+  _ -> empty
+
 class Repr r x where
   repr :: (MonadRef m, r ~ Ref m) => x -> m String
 instance Repr r Symbol where
@@ -94,12 +102,9 @@ instance Repr r Symbol where
 instance Repr r' (r' (Pair r')) where
   repr :: forall r m. (MonadRef m, r ~ Ref m) => r (Pair r) -> m String
   repr ref = do
-    mb <- string (Pair ref)
-    s <- go ref
-    pure $ maybe
-      ("(" <> s <> ")")
-      (\l -> "\"" <> foldMap escaped l <> "\"")
-      mb
+    ms <- string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""
+    mq <- runMaybeT $ MaybeT (quoted ref) >>= (fmap ('\'':)) . repr
+    go ref <&> \s -> maybe ("(" <> s <> ")") id (ms <|> mq)
     where
       escaped :: Character -> String
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)

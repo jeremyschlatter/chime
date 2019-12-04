@@ -97,10 +97,7 @@ envLookup s = do
     -- @incomplete: change behavior inside where
     (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
 
-pattern Sym       :: Char -> String -> Object s
-pattern Sym n ame = Symbol (MkSymbol (n :| ame))
-
-function :: [Object IORef] -> EvalMonad (Maybe (Environment, [Symbol], Object IORef))
+function :: [Object IORef] -> EvalMonad (Maybe (Environment, Object IORef, Object IORef))
 function x = runMaybeT $ case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
@@ -108,10 +105,7 @@ function x = runMaybeT $ case x of
         (Symbol var, val) -> pure (var, val)
         _ -> empty
       _ -> empty
-    params' <- properListOf params \case
-      Symbol s -> pure s
-      _ -> empty
-    pure (env', params', body)
+    pure (env', params, body)
   _ -> empty
 
 bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
@@ -129,7 +123,7 @@ quote x = pureListToPair [Sym 'q' "uote", x]
 data Operator
   = Primitive Primitive
   | SpecialForm SpecialForm
-  | Closure Environment [Symbol] (Object IORef)
+  | Closure Environment (Object IORef) (Object IORef)
 
 data ListExpr
   = StringExpr
@@ -281,6 +275,30 @@ operator = \case
     (Just l)  -> (\(e, p, b) -> Closure e p b) <$$> function l
     Nothing -> pure Nothing
 
+destructure :: Object IORef -> Object IORef -> EvalMonad Environment
+destructure = go where
+  go paramTree arg = case paramTree of
+    -- @incomplete: Show more information about the function
+    Character _ -> throwE $ "Invalid function definition. The parameter definition must "
+      <> "consist entirely of symbols, but this one contained a character."
+    Stream -> throwE $ "Invalid function definition. The parameter definition must "
+      <> "consist entirely of symbols, but this one contained a stream."
+    Symbol Nil -> case arg of
+      Symbol Nil -> pure []
+      _ -> throwE "Too many arguments in function call"
+    Symbol s -> pure [(s, arg)]
+    -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
+    WhereResult x -> go x arg
+    Pair pRef -> case arg of
+      Pair aRef -> do
+        MkPair (p1, p2) <- readRef pRef
+        MkPair (a1, a2) <- readRef aRef
+        -- @incomplete warn or error on duplicate symbol in params
+        b1 <- go p1 a1
+        b2 <- go p2 a2
+        pure $ b1 <> b2
+      _ -> throwE "Too few arguments in function call"
+
 evaluate :: Object IORef -> EvalMonad (Object IORef)
 evaluate expr = case expr of
   -- characters
@@ -327,17 +345,11 @@ evaluate expr = case expr of
         Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
         FormN _ f -> f args
         Lit -> pure expr
-      Closure env params body ->
-        let (nArgs, nParams) = (length args, length params) in
-        case compare nArgs nParams of
-          LT -> throwE $ "Not enough arguments in function call."
-            <> " Got " <> show nArgs <> ", want " <> show nParams <> "."
-          GT -> throwE $ "Too many arguments in function call."
-            <> " Got " <> show nArgs <> ", want " <> show nParams <> "."
-          EQ -> do
-            args' <- traverse (evaluate >=> quote) args
-            let bindings = zipWith (,) params args' <> env
-            bindVars bindings body >>= evaluate
+      Closure env params body -> do
+        bound <- (traverse evaluate >=> pureListToPair >=> destructure params) args
+        boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
+        -- @perf this listToPair could be avoided if destructure operated on lists
+        bindVars (boundAndQuoted <> env) body >>= evaluate
 
     (Nothing, Nothing) -> giveUp
 
