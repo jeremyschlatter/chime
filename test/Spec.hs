@@ -235,12 +235,17 @@ spec = do
       "(map car '((a b) (c d) (e f)))" `is` "(a c e)"
       "(map cons '(a b c) '(1 2 3))" `is` "((a . 1) (b . 2) (c . 3))"
       "(map cons '(a b c) '(1 2))" `is` "((a . 1) (b . 2))"
+      "(let (x . y) '(a b c) (list x y))" `is` "(a (b c))"
       replTest $ []
         >> "(def block args (reduce (fn (x y) (list (list 'fn 'x y) x)) args))"
         > "..."
         >> "(block 'e1 'e2 'e3)"
         > "((fn x ((fn x e3) e2)) e1)"
-      "(let (x . y) '(a b c) (list x y))" `is` "(a (b c))"
+      replTest $ []
+        >> "((macro (v) `(set ,v 'a)) x)"
+        > "a"
+        >> "x"
+        > "a"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
