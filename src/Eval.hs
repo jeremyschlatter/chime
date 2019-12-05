@@ -26,11 +26,14 @@ type EvalMonad = ExceptT Error (StateT EvalState IO)
 
 data EvalState = EvalState
  { _globe :: Environment
- , _scope :: Environment
+ , _scope :: NonEmpty Environment
  , _locs :: [()]
  , _dyns :: Environment
  }
 $(makeLenses ''EvalState)
+
+emptyState :: EvalState
+emptyState = EvalState [] (pure []) [] []
 
 class MonadRef m => MonadMutableRef m where
   modifyRef :: Ref m a -> (a -> a) -> m ()
@@ -58,15 +61,10 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
               toObject . bool '0' '1' . testBit w <$> [0..7]
-
       in listToObject $ flip fmap [0..127] \i ->
            chr i .* (
             listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
           )
-
---       in toObject $ flip fmap [0..127] \i ->
---            chr i ~~ convert $ encodeUtf8 $ singleton $ chr i
-
     )
   ] <> fmap (\p -> (p, "lit" ~~ "prim" ~| p))
     [ "id"
@@ -86,16 +84,13 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
     sym = pure . Symbol . sym'
     sym' :: String -> Symbol
     sym' = \case
-      [] -> error "developer error: called sym' with an empty string"
+      [] -> error "interpreter bug: called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
-
-emptyState :: EvalState
-emptyState = EvalState [] [] [] []
 
 envLookup :: Symbol -> EvalMonad (Object IORef)
 envLookup s = do
   dyns' <- use dyns
-  scope' <- use scope
+  scope' <- use $ scope._Wrapped._1
   globe' <- use globe
   maybe
     (throwE . ("undefined symbol: " <>) =<< repr s)
@@ -118,14 +113,6 @@ macro :: [Object IORef] -> MaybeT EvalMonad Closure
 macro = \case
   [Sym 'l' "it", Sym 'm' "ac", m] -> MaybeT (properList m) >>= function
   _ -> empty
-
-bindVars :: [(Symbol, Object IORef)] -> Object IORef -> EvalMonad (Object IORef)
-bindVars bindings = \case
-  -- @incomplete: Do I need to change behavior here when inside where?
-  s@(Symbol s') -> pure $ maybe s id $ lookup s' bindings
-  Pair r -> readRef r >>= \(MkPair (car, cdr)) ->
-    bindVars bindings car .* bindVars bindings cdr
-  x -> pure x
 
 data Operator
   = Primitive Primitive
@@ -191,14 +178,14 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form1 "where" let
       pushLoc = locs %= (():)
       popLoc = locs %= \case
-        [] -> error "should be impossible because of call to pushLoc"
+        [] -> error "interpreter bug: should be impossible because of call to pushLoc"
         _:xs -> xs
       in \x -> pushLoc *> evaluate x <* popLoc
   , Form3 "dyn" \v x y -> case v of
         Symbol s -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
           pushDyn evX = dyns %= ((s,evX):)
           popDyn = dyns %= \case
-            [] -> error "should be impossible because of call to pushDyn"
+            [] -> error "interpreter bug: should be impossible because of call to pushDyn"
             _:xs -> xs
         _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
           <> rep <> " is not a symbol."
@@ -348,7 +335,7 @@ evaluate expr = case expr of
   -- symbols
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
-    "scope" -> getEnv scope
+    "scope" -> getEnv $ scope._Wrapped._1
     _ -> envLookup s
     where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
@@ -385,18 +372,22 @@ evaluate expr = case expr of
           Lit -> pure expr
         Closure (MkClosure env params body) -> do
           bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) (bound <> env)
-          bindVars boundAndQuoted body >>= evaluate
+          withScope (bound <> env) (evaluate body)
         Macro (MkClosure env params body) -> do
           bound <- destructure params argTree
-          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) (bound <> env)
-          bindVars boundAndQuoted body >>= evaluate >>= evaluate
+          withScope (bound <> env) (evaluate body >>= evaluate)
 
       (Nothing, Nothing) -> giveUp
 
   WhereResult _ -> giveUp
 
   where
+    withScope :: Environment -> EvalMonad a -> EvalMonad a
+    withScope env a = push *> a <* pop where
+      push = scope %= (env <|)
+      pop = scope %= \case
+        _:|[] -> error "interpreter bug: can't pop scope"
+        _:|x:xs -> x:|xs
     giveUp = repr expr >>= \rep ->
       throwE $ "I don't know how to evaluate this yet: " <> rep
 

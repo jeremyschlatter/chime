@@ -164,23 +164,23 @@ spec = do
       >> "`(a b ,@y e f)"
       > "(a b c d e f)"
 
---     it "destructures arguments" $ replTest $ []
---       >> "(def f (x . y) `((x . ,x) (y . ,y)))"
---       > "..."
---       >> "(f 'a 'b 'c)"
---       > "((x . a) (y . (b c))"
---       >> "(f 'a)"
---       > "((x . a) (y . nil))"
---       >> "(f)"
---       > "<error>"
---       >> "(def f ((x y) z) `((x . ,x) (y . ,y) (z . ,z))"
---       > "..."
---       >> "(f '(a (b c)) '(d))"
---       > "((x . a) (y . (b c)) (z . (d))"
---       >> "(f '(a) '(d))"
---       > "<error>"
---       >> "(f '(a b c) '(d))"
---       > "<error>"
+    it "destructures arguments" $ replTest $ []
+      >> "(def f (x . y) `((,x . x) (,y . y)))"
+      > "..."
+      >> "(f 'a 'b 'c)"
+      > "((a . x) ((b c) . y))"
+      >> "(f 'a)"
+      > "((a . x) (nil . y))"
+      >> "(f)"
+      > "<error>"
+      >> "(def f ((x y) z) `((,x . x) (,y . y) (,z . z)))"
+      > "..."
+      >> "(f '(a (b c)) '(d))"
+      > "((a . x) ((b c) . y) ((d) . z))"
+      >> "(f '(a) '(d))"
+      > "<error>"
+      >> "(f '(a b c) '(d))"
+      > "<error>"
 
     it "implements macros" $ replTest $ []
       >> "(mac nilwith (x) `(join nil ,x))"
@@ -191,6 +191,14 @@ spec = do
       > "..."
       >> "((fn- (x y) (join x y)) 'a 'b)"
       > "(a . b)"
+
+    it "implements scope" $ replTest $ []
+      >> "(def foo (x) scope)"
+      > "..."
+      >> "(foo 'a)"
+      > "((x . a))"
+      >> "(foo 'b)"
+      > "((x . b))"
 
   describe "bel-in-bel" do
     -- Interpret bel.bel and check that the functions it defines
