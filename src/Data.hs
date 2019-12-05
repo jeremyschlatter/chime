@@ -127,10 +127,21 @@ instance Repr r Symbol where
 instance Repr r' (r' (Pair r')) where
   repr :: forall r m. (MonadRef m, r ~ Ref m) => r (Pair r) -> m String
   repr ref = do
-    ms <- string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""
-    mq <- runMaybeT $ MaybeT (quoted ref) >>= (fmap ('\'':)) . repr
-    go ref <&> \s -> maybe ("(" <> s <> ")") id (ms <|> mq)
+    mb <- runMaybeT $
+      (MaybeT (string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""))
+      <|> maybeQuoted "quote" "'"
+      <|> maybeQuoted "~backquote" "`"
+      <|> maybeQuoted' "~comma" ","
+      <|> maybeQuoted' "~splice" ",@"
+    go ref <&> \s -> maybe ("(" <> s <> ")") id mb
     where
+      maybeQuoted :: String -> String -> MaybeT m String
+      maybeQuoted name p = MaybeT (properList1 ref) >>= \case
+        Sym n ame :| [x] | n:ame == name -> repr x <&> (p <>)
+        _ -> empty
+      maybeQuoted' name p = readRef ref >>= \case
+        MkPair (Sym n ame, x) | n:ame == name -> repr x <&> (p <>)
+        _ -> empty
       escaped :: Character -> String
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
       go :: (r (Pair r)) -> m String
