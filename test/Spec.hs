@@ -164,23 +164,22 @@ spec = do
       > "(a b c d e f)"
 
 --     it "destructures arguments" $ replTest $ []
---       >> "(def f (x . y) `((x . ,x) (y . ,y))"
---       > "<ignore>"
+--       >> "(def f (x . y) `((x . ,x) (y . ,y)))"
+--       > "..."
 --       >> "(f 'a 'b 'c)"
 --       > "((x . a) (y . (b c))"
 --       >> "(f 'a)"
 --       > "((x . a) (y . nil))"
 --       >> "(f)"
 --       > "<error>"
---
 --       >> "(def f ((x y) z) `((x . ,x) (y . ,y) (z . ,z))"
---       > "<ignore>"
+--       > "..."
 --       >> "(f '(a (b c)) '(d))"
 --       > "((x . a) (y . (b c)) (z . (d))"
 --       >> "(f '(a) '(d))"
 --       > "<error>"
 --       >> "(f '(a b c) '(d))"
---       > "<error>
+--       > "<error>"
 
     it "implements macros" $ replTest $ []
       >> "(mac nilwith (x) `(join nil ,x))"
@@ -274,7 +273,12 @@ replTest = bind builtinsIO . go [] . reverse where
     (in_, out) : rest -> do
       let prefix = intercalate "\n" (reverse ("> " <> in_ : prev))
       (x, s') <- readThenRunEval ("line " <> show (length prev)) in_ state
-      either
+      if out == "<error>"
+      then either
+        (const $ pure ())
+        (repr >=> expectationFailure . ("Expected an error but got a value: " <>))
+        x
+      else either
         (expectationFailure . (clear (prefix <> "\n") <>) . red)
         (if out == "..." then const $ pure () else (repr >=> assertEqual prefix out))
         x
