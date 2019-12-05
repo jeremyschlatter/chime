@@ -114,6 +114,7 @@ spec = do
 
   describe "multi-line repl sessions" do
 
+    let replTest = replTestWith builtinsIO
     let (>>) = replInput
     let (>) = replOutput
 
@@ -205,6 +206,9 @@ spec = do
     -- work as they are specified to in bellanguage.txt.
 
     let is = evalInPreludeShouldBe
+    let replTest = replTestWith preludeIO
+    let (>>) = replInput
+    let (>) = replOutput
 
     it "interprets bel.bel correctly" do
       "(no nil)" `is` "t"
@@ -231,6 +235,11 @@ spec = do
       "(map car '((a b) (c d) (e f)))" `is` "(a c e)"
       "(map cons '(a b c) '(1 2 3))" `is` "((a . 1) (b . 2) (c . 3))"
       "(map cons '(a b c) '(1 2))" `is` "((a . 1) (b . 2))"
+      replTest $ []
+        >> "(def block args (reduce (fn (x y) (list (list 'fn 'x y) x)) args))"
+        > "..."
+        >> "(block 'e1 'e2 'e3)"
+        > "((fn x ((fn x e3) e2)) e1)"
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers
@@ -278,8 +287,8 @@ red s = "\ESC[31m" <> s <> "\ESC[0m"
 clear :: String -> String
 clear s = "\ESC[0m" <> s <> "\ESC[0m"
 
-replTest :: [(String, String)] -> IO ()
-replTest = bind builtinsIO . go [] . reverse where
+replTestWith :: IO EvalState -> [(String, String)] -> IO ()
+replTestWith initialState = bind initialState . go [] . reverse where
   go :: [String] -> [(String, String)] -> EvalState -> IO ()
   go prev ios state = case ios of
     [] -> pure ()
@@ -306,8 +315,8 @@ replOutput (ios, i) o = (i, o) : ios
 -- ----------------------------------------------------------------------------
 --                     bel-in-bel test helpers
 
-interpretPrelude :: IO EvalState
-interpretPrelude = do
+preludeIO :: IO EvalState
+preludeIO = do
   let input = "test/part-of-bel.bel"
   es <- bel input
   either
@@ -316,4 +325,4 @@ interpretPrelude = do
     es
 
 evalInPreludeShouldBe :: String -> String -> Expectation
-evalInPreludeShouldBe a b = interpretPrelude >>= evalInShouldBe a b
+evalInPreludeShouldBe a b = preludeIO >>= evalInShouldBe a b

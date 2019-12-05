@@ -49,3 +49,13 @@
   (if (no (cdr body))
       `(list 'lit 'clo scope ',parms ',(car body))
       `(list 'lit 'clo scope ',parms '(do ,@body))))
+
+(set vmark (join))
+
+(def uvar ()
+  (list vmark))
+
+(mac do args
+  (reduce (fn (x y)
+            (list (list 'fn (uvar) y) x))
+          args))
