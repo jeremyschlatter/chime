@@ -4,6 +4,7 @@ module Eval where
 import BasePrelude hiding (evaluate, getEnv, head, tail, (-), (*))
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
+import Control.Monad.State.Class (MonadState)
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
@@ -29,11 +30,12 @@ data EvalState = EvalState
  , _scope :: NonEmpty Environment
  , _locs :: [()]
  , _dyns :: Environment
+ , _debug :: [String]
  }
 $(makeLenses ''EvalState)
 
 emptyState :: EvalState
-emptyState = EvalState [] (pure []) [] []
+emptyState = EvalState [] (pure []) [] [] []
 
 class MonadRef m => MonadMutableRef m where
   modifyRef :: Ref m a -> (a -> a) -> m ()
@@ -324,8 +326,15 @@ destructure = go where
         pure $ b1 <> b2
       _ -> throwE "Too few arguments in function call"
 
+with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
+with l m e = push *> m <* pop where
+  push = l %= (e:)
+  pop = l %= \case
+    [] -> error "interpreter bug: failed to pop stack frame"
+    _:xs -> xs
+
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate expr = case expr of
+evaluate expr = bind (repr expr) $ with debug $ case expr of
   -- characters
   c@(Character _) -> pure c
 
@@ -372,10 +381,12 @@ evaluate expr = case expr of
           Lit -> pure expr
         Closure (MkClosure env params body) -> do
           bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-          withScope (bound <> env) (evaluate body)
+          flip (with debug) "applying closure" $
+            withScope (bound <> env) (evaluate body)
         Macro (MkClosure env params body) -> do
           bound <- destructure params argTree
-          withScope (bound <> env) (evaluate body >>= evaluate)
+          flip (with debug) "applying macro" $
+            withScope (bound <> env) (evaluate body >>= evaluate)
 
       (Nothing, Nothing) -> giveUp
 

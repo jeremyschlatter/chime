@@ -263,12 +263,16 @@ parseThenPrintShouldBe a b =
 failure :: String -> IO a
 failure = fmap undefined . expectationFailure
 
+stackTrace :: EvalState -> String
+stackTrace = intercalate "\n" . _debug
+
 evalIn :: String -> EvalState -> IO (Object IORef)
 evalIn s state =
-   fst <$> readThenRunEval "test case" s state >>=
+   readThenRunEval "test case" s state >>= \(x, postState) ->
      either
-       (\e -> failure $ s <> ": " <> e)
+       (\e -> failure $ s <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
        pure
+       x
 
 evalInShouldBe :: String -> String -> EvalState -> Expectation
 evalInShouldBe a b = evalIn a >=> repr >=> assertEqual ("> " <> a) b
