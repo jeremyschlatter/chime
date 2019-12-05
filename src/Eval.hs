@@ -385,12 +385,12 @@ evaluate expr = case expr of
           Lit -> pure expr
         Closure (MkClosure env params body) -> do
           bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
-          bindVars (boundAndQuoted <> env) body >>= evaluate
+          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) (bound <> env)
+          bindVars boundAndQuoted body >>= evaluate
         Macro (MkClosure env params body) -> do
           bound <- destructure params argTree
-          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) bound
-          bindVars (boundAndQuoted <> env) body >>= evaluate >>= evaluate
+          boundAndQuoted <- traverse (\(s, x) -> quote x <&> (s,)) (bound <> env)
+          bindVars boundAndQuoted body >>= evaluate >>= evaluate
 
       (Nothing, Nothing) -> giveUp
 

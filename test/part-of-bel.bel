@@ -44,3 +44,8 @@
                           (map f (cdr (car ls))))
                     (cons (apply f (map car ls))
                           (apply map f (map cdr ls)))))
+
+(mac fn (parms . body)
+  (if (no (cdr body))
+      `(list 'lit 'clo scope ',parms ',(car body))
+      `(list 'lit 'clo scope ',parms '(do ,@body))))

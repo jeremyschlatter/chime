@@ -91,6 +91,7 @@ spec = do
       "(apply join '(a b))" `is` "(a . b)"
       "(apply join 'a '(b))" `is` "(a . b)"
       "(dyn x 'z (join x 'b))" `is` "(z . b)"
+      "((lit clo ((x . a)) (y) (join x y)) 'b)" `is` "(a . b)"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""
@@ -186,6 +187,10 @@ spec = do
       > "..."
       >>  "(nilwith 'a)"
       > "(nil . a)"
+      >> "(mac fn- (parms expr) `(lit clo nil ,parms ,expr))"
+      > "..."
+      >> "((fn- (x y) (join x y)) 'a 'b)"
+      > "(a . b)"
 
   describe "bel-in-bel" do
     -- Interpret bel.bel and check that the functions it defines
