@@ -15,6 +15,8 @@ import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import Data.Text.Encoding
 import System.Console.Haskeline
+import System.Directory
+import System.FilePath
 
 import Common
 import Data
@@ -439,6 +441,12 @@ bel f = builtinsIO >>= \b -> readFile f >>= \s0 -> do
   (x, s) <- runEval (traverse_ evaluate prog) b
   pure (x $> s)
 
+getOrCreateHistoryFile :: IO FilePath
+getOrCreateHistoryFile = do
+  dir <- getXdgDirectory XdgCache "bel"
+  createDirectoryIfMissing True dir
+  pure $ dir </> "bel-repl-history.txt"
+
 repl :: IO ()
 repl = do
   args <- getArgs
@@ -446,7 +454,11 @@ repl = do
     [] -> builtinsIO
     [f] -> bel f >>= \es -> either die pure es
     _ -> die "Sorry, I can only handle up to one file"
-  runInputT defaultSettings $ go s where
+  hist <- getOrCreateHistoryFile
+  runInputT ((defaultSettings @IO)
+    { complete = noCompletion
+    , historyFile = Just hist
+    }) $ go s where
   go :: EvalState -> InputT IO ()
   go s = getInputLine "> " >>= \case
     Nothing -> pure ()

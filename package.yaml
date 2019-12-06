@@ -38,6 +38,8 @@ library:
   source-dirs: src
   dependencies:
   - bytestring
+  - directory
+  - filepath
   - haskeline
   - lens
   - megaparsec
