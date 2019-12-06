@@ -4,16 +4,17 @@ module Eval where
 import BasePrelude hiding (evaluate, getEnv, head, tail, (-), (*))
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
-import Control.Monad.State.Class (MonadState)
-import Control.Monad.Trans.Except
+import Control.Monad.Except
+import Control.Monad.State.Class (MonadState, get, put)
+import Control.Monad.Trans.Except (except)
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State hiding (get, put)
 import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import Data.Text.Encoding
-import Control.Monad.Trans.Class
+import System.Console.Haskeline
 
 import Common
 import Data
@@ -95,7 +96,7 @@ envLookup s = do
   scope' <- use $ scope._Wrapped._1
   globe' <- use globe
   maybe
-    (throwE . ("undefined symbol: " <>) =<< repr s)
+    (throwError . ("undefined symbol: " <>) =<< repr s)
     pure
     -- @incomplete: change behavior inside where
     (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
@@ -166,7 +167,7 @@ specialForms = (\f -> (formName f, f)) <$>
         -- argument under some conditions, but I don't understand
         -- those conditions yet.
         ls :| [] -> evaluate ls >>= properList >>= \case
-          Nothing -> throwE $
+          Nothing -> throwError $
             "The last argument to apply must be a proper list, but was not. "
             <> "(apply should accept non-proper lists in some cases, but "
             <> "that has not been implemented yet)."
@@ -175,7 +176,7 @@ specialForms = (\f -> (formName f, f)) <$>
               [] -> listToObject (pure (head ll) : fmap quote (tail ll)) >>= evaluate
                 where ll = NE.reverse acc'
               c:cs -> go' (c<|acc') cs
-      badParams = throwE "apply requires at least two parameters"
+      badParams = throwError "apply requires at least two parameters"
       in \case fa : r:est -> go (pure fa) (r:|est); _ -> badParams where
   , Form1 "where" let
       pushLoc = locs %= (():)
@@ -189,15 +190,15 @@ specialForms = (\f -> (formName f, f)) <$>
           popDyn = dyns %= \case
             [] -> error "interpreter bug: should be impossible because of call to pushDyn"
             _:xs -> xs
-        _ -> repr v >>= \rep -> throwE $ "dyn requires a symbol as its first argument. "
+        _ -> repr v >>= \rep -> throwError $ "dyn requires a symbol as its first argument. "
           <> rep <> " is not a symbol."
   , Form2 "after" \x y -> do
-      preX <- lift get
-      catchE (void $ evaluate x) $ const $ lift $ put preX
+      preX <- get
+      catchError (void $ evaluate x) $ const $ put preX
       evaluate y
   , Form2 "set" \var val -> case var of
       Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
-      _ -> throwE "set takes a symbol as its first argument"
+      _ -> throwError "set takes a symbol as its first argument"
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
   , Form3 "def" \n p e -> evaluate =<<
@@ -233,7 +234,7 @@ infixr 4 ~|
 append :: Object IORef -> Object IORef -> EvalMonad (Object IORef)
 append a b = bimapM properList properList (a, b) >>= \case
   (Just a', Just b') -> listToObject . fmap pure $ a' <> b'
-  _ -> throwE "non-lists in splice"
+  _ -> throwError "non-lists in splice"
 
 data Primitive
   = Prim1 String (Object IORef -> EvalMonad (Object IORef))
@@ -272,11 +273,11 @@ primitives = (\p -> (primName p, p)) <$>
   , xarAndXdr "xdr" second
   , Prim1 "sym" \x -> string x >>= \s' -> case s' >>= nonEmpty of
       Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
-      Nothing -> repr x >>= \rep -> throwE $ "sym is only defined on non-empty strings. "
+      Nothing -> repr x >>= \rep -> throwError $ "sym is only defined on non-empty strings. "
         <> rep <> " is not a non-empty string."
   , Prim1 "nom" \case
       Sym n ame -> listToObject (toObject <$> n:ame)
-      x -> repr x >>= \rep -> throwE $ "nom is only defined on symbols. "
+      x -> repr x >>= \rep -> throwError $ "nom is only defined on symbols. "
         <> rep <> " is not a symbol."
   ] where
       carAndCdr nm fn w = Prim1 nm \case
@@ -286,11 +287,11 @@ primitives = (\p -> (primName p, p)) <$>
         Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
           [] -> pure $ fn tup
           _ -> Pair ra ~| Sym @IORef w ""
-        o -> repr o >>= \s -> throwE $ nm
+        o -> repr o >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
         (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
-        (o, _) -> repr o >>= \s -> throwE $ nm
+        (o, _) -> repr o >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
 
@@ -306,13 +307,13 @@ destructure :: Object IORef -> Object IORef -> EvalMonad Environment
 destructure = go where
   go paramTree arg = case paramTree of
     -- @incomplete: Show more information about the function
-    Character _ -> throwE $ "Invalid function definition. The parameter definition must "
+    Character _ -> throwError $ "Invalid function definition. The parameter definition must "
       <> "consist entirely of symbols, but this one contained a character."
-    Stream -> throwE $ "Invalid function definition. The parameter definition must "
+    Stream -> throwError $ "Invalid function definition. The parameter definition must "
       <> "consist entirely of symbols, but this one contained a stream."
     Symbol Nil -> case arg of
       Symbol Nil -> pure []
-      _ -> throwE "Too many arguments in function call"
+      _ -> throwError "Too many arguments in function call"
     Symbol s -> pure [(s, arg)]
     -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
     WhereResult x -> go x arg
@@ -324,7 +325,7 @@ destructure = go where
         b1 <- go p1 a1
         b2 <- go p2 a2
         pure $ b1 <> b2
-      _ -> throwE "Too few arguments in function call"
+      _ -> throwError "Too few arguments in function call"
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
@@ -400,16 +401,16 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
         _:|[] -> error "interpreter bug: can't pop scope"
         _:|x:xs -> x:|xs
     giveUp = repr expr >>= \rep ->
-      throwE $ "I don't know how to evaluate this yet: " <> rep
+      throwError $ "I don't know how to evaluate this yet: " <> rep
 
 excessPrimParams :: String -> [a] -> Int -> EvalMonad b
 excessPrimParams nm args n =
-  throwE $ "Too many parameters in call to primitive " <> nm
+  throwError $ "Too many parameters in call to primitive " <> nm
     <> ". Got " <> show (length args) <> ", want at most " <> show n <> "."
 
 wrongParamCount :: String -> [a] -> Int -> EvalMonad b
 wrongParamCount nm args n =
-  throwE $ "Wrong number of parameters in special form " <> nm
+  throwError $ "Wrong number of parameters in special form " <> nm
     <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."
 
 fromBool :: Bool -> Object r
@@ -426,8 +427,7 @@ readThenEval path =
   either (except . Left . errorBundlePretty) id .
   parse path
 
-readThenRunEval
-  :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
+readThenRunEval :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
 readThenRunEval p c s = flip runEval s $ readThenEval p c
 
 builtinsIO :: IO EvalState
@@ -446,13 +446,12 @@ repl = do
     [] -> builtinsIO
     [f] -> bel f >>= \es -> either die pure es
     _ -> die "Sorry, I can only handle up to one file"
-  go s where
-  go s = do
-    putStr "> "
-    line <- catchIOError getLine \e ->
-      bool (ioError e) (putStrLn "" *> exitSuccess) (isEOFError e)
-    if isEmptyLine line then go s else do
-      (x, s') <- readThenRunEval "repl" line s
-      putStrLn =<< either pure repr x
+  runInputT defaultSettings $ go s where
+  go :: EvalState -> InputT IO ()
+  go s = getInputLine "> " >>= \case
+    Nothing -> pure ()
+    Just line -> if isEmptyLine line then go s else do
+      (x, s') <- lift $ readThenRunEval "repl" line s
+      outputStrLn =<< either pure repr x
       -- loop, resetting state if there was an error
       go $ either (const s) (const s') x
