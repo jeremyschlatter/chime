@@ -25,7 +25,7 @@ import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
 
 type Error = String
 
-type Environment = [(Symbol, (Object IORef))]
+type Environment = [(Variable, (Object IORef))]
 
 type EvalMonad = ExceptT Error (StateT EvalState IO)
 
@@ -35,11 +35,12 @@ data EvalState = EvalState
  , _locs :: [()]
  , _dyns :: Environment
  , _debug :: [String]
+ , _vmark :: IORef (Pair IORef)
  }
 $(makeLenses ''EvalState)
 
-emptyState :: EvalState
-emptyState = EvalState [] (pure []) [] [] []
+emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
+emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
 
 class MonadRef m => MonadMutableRef m where
   modifyRef :: Ref m a -> (a -> a) -> m ()
@@ -51,7 +52,7 @@ instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m)
   modifyRef = lift .: modifyRef
 
 builtins :: EvalMonad ()
-builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
+builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first (Right . sym')) $
   [ ("nil", sym "nil")
   , ("o", sym "o")
   , ("apply", sym "apply")
@@ -66,6 +67,7 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
             listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
           )
     )
+  , ("vmark", Pair <$> use vmark)
   ] <> fmap (\p -> (p, "lit" ~~ "prim" ~| p))
     [ "id"
     , "join"
@@ -87,24 +89,32 @@ builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
       [] -> error "interpreter bug: called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
-envLookup :: Symbol -> EvalMonad (Object IORef)
+envLookup :: Variable -> EvalMonad (Object IORef)
 envLookup s = do
   dyns' <- use dyns
   scope' <- use $ scope._Wrapped._1
   globe' <- use globe
   maybe
-    (throwError . ("undefined symbol: " <>) =<< repr s)
+    (throwError . ("undefined variable: " <>) =<< repr s)
     pure
     -- @incomplete: change behavior inside where
     (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
+
+toVariable :: Object IORef -> MaybeT EvalMonad Variable
+toVariable = \case
+  Symbol s -> pure $ Right s
+  Pair r -> bimapM readRef use (r, vmark) >>= \case
+    (MkPair (Pair carRef, _), v) -> case carRef == v of
+      True -> pure $ Left r
+      _ -> empty
+    _ -> empty
+  _ -> empty
 
 function :: [Object IORef] -> MaybeT EvalMonad Closure
 function x = case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
-      Pair r -> readRef r >>= \(MkPair tup) -> case tup of
-        (Symbol var, val) -> pure (var, val)
-        _ -> empty
+      Pair r -> readRef r >>= \(MkPair (var, val)) -> (,val) <$> toVariable var
       _ -> empty
     pure $ MkClosure env' params body
   _ -> empty
@@ -181,21 +191,21 @@ specialForms = (\f -> (formName f, f)) <$>
         [] -> error "interpreter bug: should be impossible because of call to pushLoc"
         _:xs -> xs
       in \x -> pushLoc *> evaluate x <* popLoc
-  , Form3 "dyn" \v x y -> case v of
-        Symbol s -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
-          pushDyn evX = dyns %= ((s,evX):)
+  , Form3 "dyn" \v x y -> runMaybeT (toVariable v) >>= \case
+        Just v' -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
+          pushDyn evX = dyns %= ((v',evX):)
           popDyn = dyns %= \case
             [] -> error "interpreter bug: should be impossible because of call to pushDyn"
             _:xs -> xs
-        _ -> repr v >>= \rep -> throwError $ "dyn requires a symbol as its first argument. "
-          <> rep <> " is not a symbol."
+        _ -> repr v >>= \rep -> throwError $ "dyn requires a variable as its first argument. "
+          <> rep <> " is not a variable."
   , Form2 "after" \x y -> do
       preX <- get
       catchError (void $ evaluate x) $ const $ put preX
       evaluate y
-  , Form2 "set" \var val -> case var of
-      Symbol var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
-      _ -> throwError "set takes a symbol as its first argument"
+  , Form2 "set" \var val -> runMaybeT (toVariable var) >>= \case
+      Just var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
+      _ -> throwError "set takes a variable as its first argument"
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
   , Form3 "def" \n p e -> evaluate =<<
@@ -302,27 +312,29 @@ operator = \case
 
 destructure :: Object IORef -> Object IORef -> EvalMonad Environment
 destructure = go where
-  go paramTree arg = case paramTree of
-    -- @incomplete: Show more information about the function
-    Character _ -> throwError $ "Invalid function definition. The parameter definition must "
-      <> "consist entirely of symbols, but this one contained a character."
-    Stream -> throwError $ "Invalid function definition. The parameter definition must "
-      <> "consist entirely of symbols, but this one contained a stream."
-    Symbol Nil -> case arg of
+  go paramTree arg = runMaybeT (toVariable paramTree) >>= \case
+    Just (Right Nil) -> case arg of
       Symbol Nil -> pure []
       _ -> throwError "Too many arguments in function call"
-    Symbol s -> pure [(s, arg)]
-    -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
-    WhereResult x -> go x arg
-    Pair pRef -> case arg of
-      Pair aRef -> do
-        MkPair (p1, p2) <- readRef pRef
-        MkPair (a1, a2) <- readRef aRef
-        -- @incomplete warn or error on duplicate symbol in params
-        b1 <- go p1 a1
-        b2 <- go p2 a2
-        pure $ b1 <> b2
-      _ -> throwError "Too few arguments in function call"
+    Just v -> pure [(v, arg)]
+    _ -> case paramTree of
+      -- @incomplete: Show more information about the function
+      Character _ -> throwError $ "Invalid function definition. The parameter definition must "
+        <> "consist entirely of variables, but this one contained a character."
+      Stream -> throwError $ "Invalid function definition. The parameter definition must "
+        <> "consist entirely of variables, but this one contained a stream."
+      Symbol _ -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
+      -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
+      WhereResult x -> go x arg
+      Pair pRef -> case arg of
+        Pair aRef -> do
+          MkPair (p1, p2) <- readRef pRef
+          MkPair (a1, a2) <- readRef aRef
+          -- @incomplete warn or error on duplicate symbol in params
+          b1 <- go p1 a1
+          b2 <- go p2 a2
+          pure $ b1 <> b2
+        _ -> throwError "Too few arguments in function call"
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
@@ -343,18 +355,20 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv $ scope._Wrapped._1
-    _ -> envLookup s
+    _ -> envLookup (Right s)
     where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
   -- pairs
   Pair ref -> readRef ref >>= \(MkPair (_, argTree)) ->
-    liftA2 (,) (string expr) (properList1 ref) >>= \case
+    (,,) <$> runMaybeT (toVariable expr) <*> string expr <*> properList1 ref >>= \case
+      -- vmark references
+      (Just v, _, _) -> envLookup v
 
       -- strings
-      (Just _, _) -> pure expr
+      (_, Just _, _) -> pure expr
 
       -- operators with arguments
-      (_, Just (op :| args)) -> operator op >>= maybe giveUp \case
+      (_, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
         Primitive p -> case p of
           Prim1 nm f -> case args of
             [] -> call (Symbol Nil)
@@ -386,7 +400,7 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
           flip (with debug) "applying macro" $
             (withScope (bound <> env) (evaluate body)) >>= evaluate
 
-      (Nothing, Nothing) -> giveUp
+      _ -> giveUp
 
   WhereResult _ -> giveUp
 
@@ -428,7 +442,7 @@ readThenRunEval :: FilePath -> String -> EvalState -> IO (Either Error (Object I
 readThenRunEval p c s = flip runEval s $ readThenEval p c
 
 builtinsIO :: IO EvalState
-builtinsIO = snd <$> runEval builtins emptyState
+builtinsIO = snd <$> (runEval builtins =<< emptyState)
 
 bel :: FilePath -> IO (Either Error EvalState)
 bel f = builtinsIO >>= \b -> readFile f >>= \s0 -> do
@@ -478,3 +492,6 @@ repl = do
   isUnexpectedEOF b = case toList (bundleErrors b) of
     [TrivialError _ (Just EndOfInput) _] -> True
     _ -> False
+
+interpreterBug :: String -> a
+interpreterBug = error . ("interpreter bug: " <>)

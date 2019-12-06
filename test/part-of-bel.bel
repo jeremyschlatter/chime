@@ -50,7 +50,7 @@
       `(list 'lit 'clo scope ',parms ',(car body))
       `(list 'lit 'clo scope ',parms '(do ,@body))))
 
-(set vmark (join))
+; (set vmark (join))
 
 (def uvar ()
   (list vmark))
@@ -65,3 +65,16 @@
 
 (mac macro args
   `(list 'lit 'mac (fn ,@args)))
+
+(mac def (n . rest)
+  `(set ,n (fn ,@rest)))
+
+(mac mac (n . rest)
+  `(set ,n (macro ,@rest)))
+
+(mac or args
+  (if (no args)
+      nil
+      (let v (uvar)
+        `(let ,v ,(car args)
+           (if ,v ,v (or ,@(cdr args)))))))

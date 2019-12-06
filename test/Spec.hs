@@ -247,6 +247,7 @@ spec = do
         > "a"
         >> "x"
         > "a"
+      "(or 'a (prn 'hello))" `is` "a"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"

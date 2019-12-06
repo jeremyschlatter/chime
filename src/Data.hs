@@ -33,6 +33,13 @@ instance (MonadRef m, MonadTrans t, Monad (t m)) => MonadRef (t m) where
   readRef = lift . readRef
   newRef = lift . newRef
 
+type Variable = Either (IORef (Pair IORef)) Symbol
+
+instance Repr r (Either (r (Pair r)) Symbol) where
+  repr = either repr repr
+instance ToObject m r (Either (r (Pair r)) Symbol) where
+  toObject = pure . either Pair Symbol
+
 data Object r
   = Symbol Symbol
   | Pair (r (Pair r))
