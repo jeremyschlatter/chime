@@ -17,6 +17,7 @@ import Data.Text.Encoding
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
+import Text.Megaparsec.Error
 
 import Common
 import Data
@@ -458,13 +459,25 @@ repl = do
   runInputT ((defaultSettings @IO)
     { complete = noCompletion
     , historyFile = Just hist
-    }) $ go s where
-  go :: EvalState -> InputT IO ()
-  go s = withInterrupt getReplLine >>= \case
+    }) $ withInterrupt $ go "" s where
+  go :: String -> EvalState -> InputT IO ()
+  go prefix s = getExtendedInput prefix >>= \case
     Nothing -> pure ()
-    Just line -> if isEmptyLine line then go s else do
-      (x, s') <- lift $ readThenRunEval "repl" line s
-      outputStrLn =<< either pure repr x
-      -- loop, resetting state if there was an error
-      go $ either (const s) (const s') x
-  getReplLine = handleInterrupt getReplLine (getInputLine "> ")
+    Just input -> if isEmptyLine input then newline *> go "" s else do
+      case parse @EvalMonad "repl" input of
+        Left err -> if isUnexpectedEOF err
+                    then go (input <> "\n") s
+                    else outputStrLn (errorBundlePretty err) *> go "" s
+        Right obj -> do
+          (x, s') <- lift $ runEval (obj >>= evaluate >>= repr) s
+          outputStrLn $ either id id x
+          newline
+          go "" $ either (const s) (const s') x
+  newline = outputStrLn "" -- empty line between inputs
+  getExtendedInput :: String -> InputT IO (Maybe String)
+  getExtendedInput prefix = handleInterrupt (newline *> getExtendedInput "")
+    ((prefix <>) <$$> getInputLine (if prefix == "" then "> " else "| "))
+  isUnexpectedEOF :: ParseErrorBundle String Void -> Bool
+  isUnexpectedEOF b = case toList (bundleErrors b) of
+    [TrivialError _ (Just EndOfInput) _] -> True
+    _ -> False
