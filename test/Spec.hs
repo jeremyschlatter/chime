@@ -201,7 +201,7 @@ spec = do
       >> "(foo 'b)"
       > "((x . b))"
 
-  describe "bel-in-bel" do
+  describe "interpretation of bel.bel" do
     -- Interpret bel.bel and check that the functions it defines
     -- work as they are specified to in bellanguage.txt.
 
@@ -210,7 +210,7 @@ spec = do
     let (>>) = replInput
     let (>) = replOutput
 
-    it "interprets bel.bel correctly" do
+    it "reproduces literal repl examples from The Bel Language guide" do
       "(no nil)" `is` "t"
       "(no 'a)" `is` "nil"
       "(atom \\a)" `is` "t"
@@ -247,6 +247,14 @@ spec = do
         > "a"
         >> "x"
         > "a"
+
+    it "implements behavior described in The Bel Language guide" do
+      "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
+      "((fn (x) (cons 'a x)) 'b)" `is` "(a . b)"
+      "((lit clo nil (y) (fn (x) (cons y x))) 'a)" `is` "(lit clo ((y . a)) (x) (cons y x))"
+      "(let y 'a (fn (x) (cons y x)))" `is` "(lit clo ((y . a)) (x) (cons y x))"
+      "((let y 'a (fn (x) (cons y x))) 'b)" `is` "(a . b)"
+
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers

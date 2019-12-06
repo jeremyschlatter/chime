@@ -384,7 +384,7 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
         Macro (MkClosure env params body) -> do
           bound <- destructure params argTree
           flip (with debug) "applying macro" $
-            withScope (bound <> env) (evaluate body >>= evaluate)
+            (withScope (bound <> env) (evaluate body)) >>= evaluate
 
       (Nothing, Nothing) -> giveUp
 
