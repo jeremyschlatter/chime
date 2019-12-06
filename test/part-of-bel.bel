@@ -78,3 +78,7 @@
       (let v (uvar)
         `(let ,v ,(car args)
            (if ,v ,v (or ,@(cdr args)))))))
+
+(mac and args
+  (reduce (fn es (cons 'if es))
+          (or args '(t))))

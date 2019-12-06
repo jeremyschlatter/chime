@@ -248,6 +248,8 @@ spec = do
         >> "x"
         > "a"
       "(or 'a (prn 'hello))" `is` "a"
+      "(apply or '(nil nil))" `is` "nil"
+      "(apply or '(nil a b))" `is` "a"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
@@ -255,6 +257,16 @@ spec = do
       "((lit clo nil (y) (fn (x) (cons y x))) 'a)" `is` "(lit clo ((y . a)) (x) (cons y x))"
       "(let y 'a (fn (x) (cons y x)))" `is` "(lit clo ((y . a)) (x) (cons y x))"
       "((let y 'a (fn (x) (cons y x))) 'b)" `is` "(a . b)"
+      replTest $ []
+        >> "(set x 'a)"
+        > "a"
+        >> "(or 'b (set x 'c))"
+        > "b"
+        >> "(and t nil (set x 'd))"
+        > "nil"
+        >> "x"
+        > "a" --   <-- the sets should not have evaluated, so x should still be a
+      "(and t t nil t)" `is` "nil"
 
 
 -- ----------------------------------------------------------------------------
