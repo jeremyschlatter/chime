@@ -43,18 +43,12 @@ emptyState = EvalState [] (pure []) [] [] []
 
 class MonadRef m => MonadMutableRef m where
   modifyRef :: Ref m a -> (a -> a) -> m ()
-  writeRef :: Ref m a -> a -> m ()
 
 instance MonadMutableRef IO where
   modifyRef = modifyIORef
-  writeRef = writeIORef
 
 instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m) where
   modifyRef = lift .: modifyRef
-  writeRef = lift .: writeRef
-
-modifyRefM :: MonadMutableRef m => Ref m a -> (a -> m a) -> m ()
-modifyRefM r f = readRef r >>= (f >=> writeRef r)
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first sym') $
