@@ -460,10 +460,11 @@ repl = do
     , historyFile = Just hist
     }) $ go s where
   go :: EvalState -> InputT IO ()
-  go s = getInputLine "> " >>= \case
+  go s = withInterrupt getReplLine >>= \case
     Nothing -> pure ()
     Just line -> if isEmptyLine line then go s else do
       (x, s') <- lift $ readThenRunEval "repl" line s
       outputStrLn =<< either pure repr x
       -- loop, resetting state if there was an error
       go $ either (const s) (const s') x
+  getReplLine = handleInterrupt getReplLine (getInputLine "> ")
