@@ -292,9 +292,6 @@ evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
 -- ----------------------------------------------------------------------------
 --                     multi-line repl test helpers
 
-red :: String -> String
-red s = "\ESC[31m" <> s <> "\ESC[0m"
-
 clear :: String -> String
 clear s = "\ESC[0m" <> s <> "\ESC[0m"
 

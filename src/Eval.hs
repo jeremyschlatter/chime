@@ -442,6 +442,9 @@ getOrCreateHistoryFile = do
   createDirectoryIfMissing True dir
   pure $ dir </> "bel-repl-history.txt"
 
+red :: String -> String
+red s = "\ESC[31m" <> s <> "\ESC[0m"
+
 repl :: IO ()
 repl = do
   args <- getArgs
@@ -458,13 +461,13 @@ repl = do
   go prefix s = getExtendedInput prefix >>= \case
     Nothing -> pure ()
     Just input -> if isEmptyLine input then newline *> go "" s else do
-      case parse @EvalMonad "repl" input of
+      case parse @EvalMonad "input" input of
         Left err -> if isUnexpectedEOF err
                     then go (input <> "\n") s
-                    else outputStrLn (errorBundlePretty err) *> go "" s
+                    else outputStrLn (red (errorBundlePretty err)) *> go "" s
         Right obj -> do
           (x, s') <- lift $ runEval (obj >>= evaluate >>= repr) s
-          outputStrLn $ either id id x
+          outputStrLn $ either red id x
           newline
           go "" $ either (const s) (const s') x
   newline = outputStrLn "" -- empty line between inputs
