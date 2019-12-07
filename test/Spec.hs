@@ -273,6 +273,11 @@ spec = do
       "(iflet x nil 'foo '(a b c) (car x) 'bar)" `is` "a"
       "(map (fn (x) (aif (cdr x) (car it))) '((a) (b c) (d e f) (g)))" `is` "(nil c e nil)"
       "(find [= (car _) \\a] '(\"pear\" \"apple\" \"grape\"))" `is` "\"apple\""
+      "(begins '(a b c d e) '(a b))" `is` "t"
+      "(caris '(a b) 'a)" `is` "t"
+      "(hug '(a b c d e))" `is` "((a b) (c d) (e))"
+      -- @incomplete: uncomment this when + is implemented
+      -- "(hug '(1 2 3 4 5) +)" `is` "(3 7 5)"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
