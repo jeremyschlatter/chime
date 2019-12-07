@@ -29,7 +29,7 @@ lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
 regularChar :: Parser Char
-regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/:;<=>?@^_{|}~") <?> "regular character"
+regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/:;<=>?@^_{|}~¦") <?> "regular character"
 
 symbol :: Parser Symbol
 symbol = (lexeme $ some1 regularChar <&> MkSymbol)
@@ -39,7 +39,8 @@ surround :: String -> String -> Parser a -> Parser a
 surround a b x = lexLit a *> x <* lexLit b
 
 string :: Parser (Object Identity)
-string = surround "\"" "\"" (listToPair' . (fmap Character) <$> many (character' regularChar))
+string = surround "\"" "\"" (listToPair' . (fmap Character) <$>
+  many (character' (regularChar <|> oneOf ",`'\\.[]() ")))
 
 pair :: Parser (Pair Identity)
 pair = surround "(" ")" pair' where
@@ -54,7 +55,7 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
     (foldl (flip \(s, c) -> ((lexLit s $> c) <|>)) empty controlChars)
 
 character :: Parser Character
-character = character' $ char '\\' *> lexeme regularChar
+character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]()")
 
 quotedExpression :: Parser (Object Identity)
 quotedExpression = char '\'' *> expression <&> runIdentity . quote
