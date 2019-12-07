@@ -270,6 +270,7 @@ spec = do
         > "..."
         >> "(sname '+)"
         > "plus"
+      "(iflet x nil 'foo '(a b c) (car x) 'bar)" `is` "a"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
