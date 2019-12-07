@@ -29,7 +29,7 @@ lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
 regularChar :: Parser Char
-regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/:;<=>?@[]^_{|}~") <?> "regular character"
+regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/:;<=>?@^_{|}~") <?> "regular character"
 
 symbol :: Parser Symbol
 symbol = (lexeme $ some1 regularChar <&> MkSymbol)
@@ -73,12 +73,20 @@ commaExpr = char ',' *> (atExpr <|> expr) where
   atExpr = char '@' *> expression <&> \x ->
     Pair $ Identity $ MkPair (Sym '~' "splice", x)
 
+-- [f _ x] -> (fn (_) (f _ x))
+bracketFn :: Parser (Object Identity)
+bracketFn = lexChar '[' *> (wrap <$> many expression) <* lexChar ']' where
+  wrap x = l [Sym 'f' "n", l [Sym '_' ""], l x]
+  l = listToPair'
+  lexChar = lexeme . char
+
 expression :: Parser (Object Identity)
 expression =  (Symbol <$> symbol)
           <|> quotedExpression
           <|> backQuotedList
           <|> commaExpr
           <|> string
+          <|> bracketFn
           <|> (Pair . Identity <$> pair)
           <|> (Character <$> character)
 

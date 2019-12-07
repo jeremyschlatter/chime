@@ -38,6 +38,7 @@ spec = do
       "(\\h \\e \\l \\l \\o)" `is` "\"hello\""
       "\"hello\"" `is` "\"hello\""
       "'a" `is` "'a"
+      "[f _ x]" `is` "(fn (_) (f _ x))"
 
     it "parses and prints other examples" do
       "( )" `is` "nil"
@@ -250,6 +251,8 @@ spec = do
       "(or 'a (prn 'hello))" `is` "a"
       "(apply or '(nil nil))" `is` "nil"
       "(apply or '(nil a b))" `is` "a"
+      "(id '(a b) '(a b))" `is` "nil"
+      "(= '(a b) '(a b))" `is` "t"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
