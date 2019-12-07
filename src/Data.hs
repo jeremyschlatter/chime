@@ -47,6 +47,9 @@ data Object r
   | Stream
   | WhereResult (Object r)
 
+o :: (MonadRef m, r ~ Ref m, ToObject m r x) => x -> m (Object r)
+o = toObject
+
 class ToObject m r x where
   toObject :: (MonadRef m, r ~ Ref m) => x -> m (Object r)
 instance ToObject m r Symbol where
@@ -65,6 +68,15 @@ instance ToObject m r [m (Object r)] where
   toObject = \case
     [] -> toObject "nil"
     x:xs -> x .* toObject @m @r xs
+-- @performance: numbers have an obvious performance problem to solve
+instance ToObject m r (Complex Rational) where
+  toObject c = o [o "lit", o "num", num $ realPart c, num $ imagPart c] where
+    num :: Rational -> m (Object r)
+    num n = o [sign n, unary $ numerator $ abs n, unary $ denominator $ abs n]
+    unary :: Integer -> m (Object r)
+    -- @incomplete: generalize this to handle things outside Int range
+    unary = listToObject . flip replicate (o "t") .  fromInteger
+    sign n = o if n >= 0 then "+" else "-"
 
 -- toObject specialized to [m (Object r)]
 listToObject :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
@@ -140,8 +152,32 @@ instance Repr r' (r' (Pair r')) where
       <|> maybeQuoted "~backquote" "`"
       <|> maybeQuoted' "~comma" ","
       <|> maybeQuoted' "~splice" ",@"
+      <|> maybeNumber
     go ref <&> \s -> maybe ("(" <> s <> ")") id mb
     where
+      maybeNumber :: MaybeT m String
+      maybeNumber = MaybeT (properList (Pair ref)) >>= \case
+        [Sym 'l' "it", Sym 'n' "um", real', imag'] ->
+          bisequence (ratio real', ratio imag') <&> \(real, imag) ->
+            showRatio real False <> if imag == 0 then "" else (showRatio imag True <> "i")
+        _ -> empty
+      showRatio :: Rational -> Bool -> String
+      showRatio r b = (if b && r >=0 then "+" else "")
+        <> show (numerator r) <> if denominator r == 1 then "" else ("/" <> show (denominator r))
+      ratio :: Object r -> MaybeT m Rational
+      ratio mr = MaybeT (properList mr) >>= \case
+        [sign -> Just s, num, denom] -> bisequence (integer num, integer denom) <&> \(n, d) ->
+          (s * n) % d
+        _ -> empty
+      integer :: Object r -> MaybeT m Integer
+      -- @incomplete: this doesn't work outside the Int range
+      integer = fmap (toInteger . length) . flip properListOf \case
+        Sym 't' "" -> pure ()
+        _ -> empty
+      sign = \case
+        Sym '+' "" -> Just 1
+        Sym '-' "" -> Just (-1)
+        _ -> Nothing
       maybeQuoted :: String -> String -> MaybeT m String
       maybeQuoted name p = MaybeT (properList1 ref) >>= \case
         Sym n ame :| [x] | n:ame == name -> repr x <&> (p <>)
@@ -158,7 +194,7 @@ instance Repr r' (r' (Pair r')) where
         (car' <>) <$> case cdr of
           Symbol Nil -> pure ""
           Pair p' -> (" " <>) <$> go p'
-          o -> (" . " <>) <$> repr o
+          x -> (" . " <>) <$> repr x
 instance Repr m Character where
   repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
 instance Repr m (Object m) where

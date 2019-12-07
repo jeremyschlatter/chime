@@ -52,7 +52,7 @@ instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m)
   modifyRef = lift .: modifyRef
 
 builtins :: EvalMonad ()
-builtins = (globe <~) $ traverse ((\(s, o) -> (s,) <$> o) . first (Right . sym')) $
+builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')) $
   [ ("nil", sym "nil")
   , ("o", sym "o")
   , ("apply", sym "apply")
@@ -299,11 +299,11 @@ primitives = (\p -> (primName p, p)) <$>
         Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
           [] -> pure $ fn tup
           _ -> Pair ra ~| Sym @IORef w ""
-        o -> repr o >>= \s -> throwError $ nm
+        x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
         (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
-        (o, _) -> repr o >>= \s -> throwError $ nm
+        (x, _) -> repr x >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
 

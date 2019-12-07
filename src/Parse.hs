@@ -4,6 +4,7 @@ module Parse
   ) where
 
 import BasePrelude hiding (try, many)
+import Data.Bitraversable
 import Data.List.NonEmpty
 
 import Text.Megaparsec hiding (parse)
@@ -81,13 +82,33 @@ bracketFn = lexChar '[' *> (wrap <$> many expression) <* lexChar ']' where
   l = listToPair'
   lexChar = lexeme . char
 
+number :: Parser (Object Identity)
+number = lexeme (runIdentity . o <$> complex) where
+  complex :: Parser (Complex Rational)
+  complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
+    (Nothing, Nothing) -> empty
+    (Just r, Nothing) -> pure (r :+ 0)
+    (Nothing, Just i) -> pure (0 :+ i)
+    (Just r,  Just i) -> pure (r :+ i)
+  rational :: Parser Rational
+  rational = L.signed (pure ()) (try ratio <|> decimal)
+  ratio :: Parser Rational
+  ratio = bisequence (integer, char '/' *> integer) <&> uncurry (%)
+  decimal :: Parser Rational
+  decimal = toRational <$> L.scientific
+  integer :: Parser Integer
+  integer = L.decimal
+  opt p = fmap Just p <|> pure Nothing
+
 expression :: Parser (Object Identity)
-expression =  (Symbol <$> symbol)
+expression =  (try number)
+          <|> (Symbol <$> symbol)
           <|> quotedExpression
           <|> backQuotedList
           <|> commaExpr
           <|> string
           <|> bracketFn
+          <|> number
           <|> (Pair . Identity <$> pair)
           <|> (Character <$> character)
 

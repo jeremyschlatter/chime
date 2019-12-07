@@ -39,9 +39,14 @@ spec = do
       "\"hello\"" `is` "\"hello\""
       "'a" `is` "'a"
       "[f _ x]" `is` "(fn (_) (f _ x))"
+      "(lit num (+ (t t) (t t t)) (+ () (t)))" `is` "2/3"
 
     it "parses and prints other examples" do
       "( )" `is` "nil"
+      "1" `is` "1"
+      "2/3" `is` "2/3"
+      "0.5" `is` "1/2"
+      "4-1/2i" `is` "4-1/2i"
 
   describe "evaluation" do
 
@@ -392,7 +397,7 @@ replInput :: [(String, String)] -> String -> ([(String, String)], String)
 replInput = (,)
 
 replOutput :: ([(String, String)], String) -> String -> [(String, String)]
-replOutput (ios, i) o = (i, o) : ios
+replOutput (ios, in_) out = (in_, out) : ios
 
 -- ----------------------------------------------------------------------------
 --                     bel-in-bel test helpers
