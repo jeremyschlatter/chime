@@ -179,7 +179,8 @@ escapeSequence =
 
 controlChars :: [(String, Char)]
 controlChars =
-  [ ("nul", '\NUL')
+  [ ("tab", '\t')
+  , ("nul", '\NUL')
   , ("soh", '\SOH')
   , ("stx", '\STX')
   , ("etx", '\ETX')
