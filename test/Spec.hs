@@ -253,6 +253,9 @@ spec = do
       "(apply or '(nil a b))" `is` "a"
       "(id '(a b) '(a b))" `is` "nil"
       "(= '(a b) '(a b))" `is` "t"
+      "(proper nil)" `is` "t"
+      "(proper '(a . b))" `is` "nil"
+      "(proper '(a b))" `is` "t"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
