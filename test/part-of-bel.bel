@@ -100,3 +100,9 @@
 (def proper (x)
   (or (no x)
       (and (pair x) (proper (cdr x)))))
+
+(def string (x)
+  (and (proper x) (all char x)))
+
+(def mem (x ys (o f =))
+  (some [f _ x] ys))

@@ -256,6 +256,15 @@ spec = do
       "(proper nil)" `is` "t"
       "(proper '(a . b))" `is` "nil"
       "(proper '(a b))" `is` "t"
+      "((fn (x (o y)) y) 'a)" `is` "nil"
+      "((fn (x (o y 'b)) y) 'a)" `is` "b"
+      "(let (x (o (y . z) '(a . b))) '(f) (list x y z))" `is` "(f a b)"
+      "(string \"foo\")" `is` "t"
+      "(mem 'b '(a b c))" `is` "(b c)"
+      "(mem 'e '(a b c))" `is` "nil"
+      "(mem \\a \"foobar\")" `is` "\"ar\""
+      -- @incomplete: uncomment this when > is implemented:
+      -- "(mem 3 '(2 4 6 8) >)" `is` "(4 6 8)"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"

@@ -310,6 +310,12 @@ operator = \case
     (Just l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
     Nothing -> pure Nothing
 
+toOptionalVar :: Object IORef -> EvalMonad (Maybe (Object IORef, Object IORef))
+toOptionalVar p = properList p <&> \case
+  Just [Sym 'o' "", x] -> Just (x, Symbol Nil)
+  Just [Sym 'o' "", x, y] -> Just (x, y)
+  _ -> Nothing
+
 destructure :: Object IORef -> Object IORef -> EvalMonad Environment
 destructure = go where
   go paramTree arg = runMaybeT (toVariable paramTree) >>= \case
@@ -326,15 +332,23 @@ destructure = go where
       Symbol _ -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
       -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
       WhereResult x -> go x arg
-      Pair pRef -> case arg of
-        Pair aRef -> do
-          MkPair (p1, p2) <- readRef pRef
-          MkPair (a1, a2) <- readRef aRef
-          -- @incomplete warn or error on duplicate symbol in params
-          b1 <- go p1 a1
-          b2 <- go p2 a2
-          pure $ b1 <> b2
-        _ -> throwError "Too few arguments in function call"
+      Pair pRef ->
+        let go' (pf1, a1) (pf2, a2) = (<>) <$> go pf1 a1 <*> go pf2 a2
+        in readRef pRef >>= \(MkPair (p1, p2)) ->
+          bimapM toOptionalVar toOptionalVar (p1, p2) >>= \(o1, o2) ->
+            case arg of
+              Pair aRef -> do
+                let toVar v = maybe v fst
+                MkPair (a1, a2) <- readRef aRef
+                go' (toVar p1 o1, a1) (toVar p2 o2, a2)
+              x -> case (o1, o2) of
+                (Nothing, Nothing) -> throwError "Too few arguments in function call"
+                (Nothing, Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (p1, x) (v2, e2)
+                -- @consider: is this behavior correct? these cases feel weird
+                -- ((fn ((o x) . y) t))
+                (Just (v1, d1), Nothing) -> evaluate d1 >>= \e1 -> go' (v1, e1) (p2, x)
+                -- ((fn ((o x) . (o y)) t))
+                (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (v1, x) (v2, e2)
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
