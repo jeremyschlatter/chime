@@ -278,6 +278,26 @@ spec = do
       "(hug '(a b c d e))" `is` "((a b) (c d) (e))"
       -- @incomplete: uncomment this when + is implemented
       -- "(hug '(1 2 3 4 5) +)" `is` "(3 7 5)"
+      "(with (x 'a  \
+      \       y 'b) \
+      \  (cons x y))" `is` "(a . b)"
+      -- @incomplete: uncomment when odd is implemented
+      -- "(keep odd '(1 2 3 4 5))" `is` "(1 3 5)"
+      "(rem \\a \"abracadabra\")" `is` "\"brcdbr\""
+      -- @incomplete: uncomment when >= is implemented
+      -- "(rem 4 '(5 3 1 2 4) >=)" `is` "(3 1 2)"
+      replTest $ []
+        >> "(set x '((a . 1) (b . 2) (c . 3)))"
+        > "((a . 1) (b . 2) (c . 3))"
+        >> "(get 'a x)"
+        > "(a . 1)"
+        >> "(get 'z x)"
+        > "nil"
+        -- @incomplete: unquote 26 and 9 when numbers are implemented
+        >> "(put 'z '26 x)"
+        > "((z . 26) (a . 1) (b . 2) (c . 3))"
+        >> "(put 'a '9 x)"
+        > "((a . 9) (b . 2) (c . 3))"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
