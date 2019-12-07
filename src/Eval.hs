@@ -203,9 +203,14 @@ specialForms = (\f -> (formName f, f)) <$>
       preX <- get
       catchError (void $ evaluate x) $ const $ put preX
       evaluate y
-  , Form2 "set" \var val -> runMaybeT (toVariable var) >>= \case
-      Just var' -> evaluate val >>= \val' -> (globe %= ((var', val'):)) $> val'
-      _ -> throwError "set takes a variable as its first argument"
+  , FormN "set" let
+      go r = \case
+        [] -> pure r
+        [_] -> throwError "Odd number of arguments to set."
+        var:val:rest -> runMaybeT (toVariable var) >>= \case
+          Just v -> evaluate val >>= \val' -> (globe %= ((v, val'):)) *> go val' rest
+          _ -> throwError "Tried to assign to a non-variable with set"
+      in go $ Symbol Nil
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
   , Form3 "def" \n p e -> evaluate =<<
