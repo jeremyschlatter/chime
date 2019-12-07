@@ -298,6 +298,11 @@ spec = do
         > "((z . 26) (a . 1) (b . 2) (c . 3))"
         >> "(put 'a '9 x)"
         > "((a . 9) (b . 2) (c . 3))"
+      "(rev \"able\")" `is` "\"elba\""
+      "(snap '(a b) '(1 2 3 4 5))" `is` "((1 2) (3 4 5))"
+      "(udrop '(a b) '(1 2 3 4 5))" `is` "(3 4 5)"
+      "(map idfn '(a b c))" `is` "(a b c)"
+      "((is 'a) 'a)" `is` "t"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
