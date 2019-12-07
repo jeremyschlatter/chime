@@ -265,6 +265,11 @@ spec = do
       "(mem \\a \"foobar\")" `is` "\"ar\""
       -- @incomplete: uncomment this when > is implemented:
       -- "(mem 3 '(2 4 6 8) >)" `is` "(4 6 8)"
+      replTest $ []
+        >> "(def sname (s) (case s + 'plus - 'minus 'unknown))"
+        > "..."
+        >> "(sname '+)"
+        > "plus"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"

@@ -106,3 +106,21 @@
 
 (def mem (x ys (o f =))
   (some [f _ x] ys))
+
+(def in (x . ys)
+  (mem x ys))
+
+(def cadr  (x) (car (cdr x)))
+
+(def cddr  (x) (cdr (cdr x)))
+
+(def caddr (x) (car (cddr x)))
+
+(mac case (expr . args)
+  (if (no (cdr args))
+      (car args)
+      (let v (uvar)
+        `(let ,v ,expr
+           (if (= ,v ',(car args))
+               ,(cadr args)
+               (case ,v ,@(cddr args)))))))
