@@ -86,7 +86,7 @@ builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')
     sym = pure . Symbol . sym'
     sym' :: String -> Symbol
     sym' = \case
-      [] -> error "interpreter bug: called sym' with an empty string"
+      [] -> interpreterBug "called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
 envLookup :: Variable -> EvalMonad (Object IORef)
@@ -103,7 +103,7 @@ envLookup s = do
 toVariable :: Object IORef -> MaybeT EvalMonad Variable
 toVariable = \case
   Symbol s -> pure $ Right s
-  Pair r -> bimapM readRef use (r, vmark) >>= \case
+  Pair r -> bisequence (readRef r, use vmark) >>= \case
     (MkPair (Pair carRef, _), v) -> case carRef == v of
       True -> pure $ Left r
       _ -> empty
@@ -428,7 +428,7 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
     withScope env a = push *> a <* pop where
       push = scope %= (env <|)
       pop = scope %= \case
-        _:|[] -> error "interpreter bug: can't pop scope"
+        _:|[] -> interpreterBug "can't pop scope"
         _:|x:xs -> x:|xs
     giveUp = repr expr >>= \rep ->
       throwError $ "I don't know how to evaluate this yet: " <> rep
@@ -511,6 +511,3 @@ repl = do
   isUnexpectedEOF b = case toList (bundleErrors b) of
     [TrivialError _ (Just EndOfInput) _] -> True
     _ -> False
-
-interpreterBug :: String -> a
-interpreterBug = error . ("interpreter bug: " <>)

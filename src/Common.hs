@@ -26,3 +26,6 @@ type String1 = NonEmpty Char
 unfinished :: a
 unfinished = undefined
 {-# WARNING unfinished "This code is unfinished" #-}
+
+interpreterBug :: String -> a
+interpreterBug = error . ("interpreter bug: " <>)
