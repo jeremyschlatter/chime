@@ -5,7 +5,6 @@ import Control.Monad.Trans.Maybe
 import Test.HUnit.Base
 import Test.Hspec
 
-import Common
 import Data
 import Eval
 import Parse hiding (string)
@@ -120,7 +119,8 @@ spec = do
 
   describe "multi-line repl sessions" do
 
-    let replTest = replTestWith builtinsIO
+    state <- runIO builtinsIO
+    let replTest = replTestWith state
     let (>>) = replInput
     let (>) = replOutput
 
@@ -211,8 +211,9 @@ spec = do
     -- Interpret bel.bel and check that the functions it defines
     -- work as they are specified to in bellanguage.txt.
 
-    let is = evalInPreludeShouldBe
-    let replTest = replTestWith preludeIO
+    state <- runIO preludeIO
+    let is a b = evalInShouldBe a b state
+    let replTest = replTestWith state
     let (>>) = replInput
     let (>) = replOutput
 
@@ -374,8 +375,8 @@ evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
 clear :: String -> String
 clear s = "\ESC[0m" <> s <> "\ESC[0m"
 
-replTestWith :: IO EvalState -> [(String, String)] -> IO ()
-replTestWith initialState = bind initialState . go [] . reverse where
+replTestWith :: EvalState -> [(String, String)] -> IO ()
+replTestWith initialState = flip (go []) initialState . reverse where
   go :: [String] -> [(String, String)] -> EvalState -> IO ()
   go prev ios state = case ios of
     [] -> pure ()
@@ -410,6 +411,3 @@ preludeIO = do
     (\e -> failure $ "failed to parse " <> input <> ": " <> e)
     pure
     es
-
-evalInPreludeShouldBe :: String -> String -> Expectation
-evalInPreludeShouldBe a b = preludeIO >>= evalInShouldBe a b
