@@ -213,8 +213,12 @@ specialForms = (\f -> (formName f, f)) <$>
       in go $ Symbol Nil
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
-  , Form3 "def" \n p e -> evaluate =<<
-      ("set" ~~ n ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e))
+  , FormN "def" \case
+      [] -> throwError "'def' received no arguments"
+      -- @incomplete: does not capture scope in the three-argument case
+      [n, p, e] -> evaluate =<<
+        ("set" ~~ n ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e))
+      n:rest -> evaluate =<< "set" ~~ n ~| ("fn" ~~ listToObject @EvalMonad (pure <$> rest))
 
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
