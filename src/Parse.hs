@@ -4,21 +4,25 @@ module Parse
   ) where
 
 import BasePrelude hiding (try, many)
+import Control.Applicative.Combinators.NonEmpty
 import Data.Bitraversable
-import Data.List.NonEmpty
+import Data.List.NonEmpty as NE
 
-import Text.Megaparsec hiding (parse)
+import Text.Megaparsec hiding (parse, sepBy1)
 import qualified Text.Megaparsec as M (parse)
 import Text.Megaparsec.Char hiding (string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error (errorBundlePretty)
 
-import Data hiding (string, number)
+import Data hiding (string, number, o)
 
 type Parser = Parsec Void String
 
 listToPair' :: [Object Identity] -> Object Identity
 listToPair' = runIdentity . toObject . (fmap Identity)
+
+o :: (ToObject Identity Identity x) => x -> Object Identity
+o = runIdentity . toObject
 
 sc :: Parser ()
 sc = L.space space1 (L.skipLineComment ";") empty
@@ -30,18 +34,24 @@ lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
 regularChar :: Parser Char
-regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/:;<=>?@^_{|}~¦") <?> "regular character"
+regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/;<=>?@^_{|}~¦") <?> "regular character"
 
-symbol :: Parser Symbol
-symbol = (lexeme $ some1 regularChar <&> MkSymbol)
-      <|> try (lexLit "(" *> lexLit ")" $> Nil)
+composedSymbols :: Parser (Object Identity)
+composedSymbols = sepBy1 (Symbol <$> symbol) (char ':') <&> compose where
+  symbol :: Parser Symbol
+  symbol = (lexeme $ some1 regularChar <&> MkSymbol)
+        <|> try (lexLit "(" *> lexLit ")" $> Nil)
+  compose :: NonEmpty (Object Identity) -> Object Identity
+  compose = \case
+    x :| [] -> x
+    xs -> listToPair' $ NE.toList $ o "compose" <| xs
 
 surround :: String -> String -> Parser a -> Parser a
 surround a b x = lexLit a *> x <* lexLit b
 
 string :: Parser (Object Identity)
 string = surround "\"" "\"" (listToPair' . (fmap Character) <$>
-  many (character' (regularChar <|> oneOf ",`'\\.[]() ")))
+  many (character' (regularChar <|> oneOf ",`'\\.[](): ")))
 
 pair :: Parser (Pair Identity)
 pair = surround "(" ")" pair' where
@@ -56,7 +66,7 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
     (foldl (flip \(s, c) -> ((lexLit s $> c) <|>)) empty controlChars)
 
 character :: Parser Character
-character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]()")
+character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]():")
 
 quotedExpression :: Parser (Object Identity)
 quotedExpression = char '\'' *> expression <&> runIdentity . quote
@@ -83,7 +93,7 @@ bracketFn = lexChar '[' *> (wrap <$> many expression) <* lexChar ']' where
   lexChar = lexeme . char
 
 number :: Parser (Object Identity)
-number = lexeme (runIdentity . o <$> complex) where
+number = lexeme (o <$> complex) where
   complex :: Parser (Complex Rational)
   complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
     (Nothing, Nothing) -> empty
@@ -102,7 +112,7 @@ number = lexeme (runIdentity . o <$> complex) where
 
 expression :: Parser (Object Identity)
 expression =  (try number)
-          <|> (Symbol <$> symbol)
+          <|> composedSymbols
           <|> quotedExpression
           <|> backQuotedList
           <|> commaExpr

@@ -310,6 +310,9 @@ spec = do
       "(map idfn '(a b c))" `is` "(a b c)"
       "((is 'a) 'a)" `is` "t"
 
+      "((compose car cdr) '(a b c))" `is` "b"
+      "(car:cdr '(a b c))" `is` "b"
+
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
       "((fn (x) (cons 'a x)) 'b)" `is` "(a . b)"

@@ -44,6 +44,7 @@ library:
   - lens
   - megaparsec
   - mtl
+  - parser-combinators
   - text
   - transformers
 
