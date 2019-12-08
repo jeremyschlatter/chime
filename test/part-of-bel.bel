@@ -330,449 +330,449 @@
                        (append (parameters (car p))
                                (parameters (cdr p)))))
 
-; (form quote ((e) a s r m)
-;   (mev s (cons e r) m))
-
-; (form if (es a s r m)
-;   (if (no es)
-;       (mev s (cons nil r) m)
-;       (mev (cons (list (car es) a)
-;                  (if (cdr es)
-;                      (cons (fu (s r m)
-;                              (if2 (cdr es) a s r m))
-;                            s)
-;                      s))
-;            r
-;            m)))
-
-; (def if2 (es a s r m)
-;   (mev (cons (list (if (car r)
-;                        (car es)
-;                        (cons 'if (cdr es)))
-;                    a)
-;              s)
-;        (cdr r)
-;        m))
-
-; (form where ((e (o new)) a s r m)
-;   (mev (cons (list e a)
-;              (list (list smark 'loc new) nil)
-;              s)
-;        r
-;        m))
-
-; (form dyn ((v e1 e2) a s r m)
-;   (if (variable v)
-;       (mev (cons (list e1 a)
-;                  (fu (s r m) (dyn2 v e2 a s r m))
-;                  s)
-;            r
-;            m)
-;       (sigerr 'cannot-bind s r m)))
-
-; (def dyn2 (v e2 a s r m)
-;   (mev (cons (list e2 a)
-;              (list (list smark 'bind (cons v (car r)))
-;                    nil)
-;              s)
-;        (cdr r)
-;        m))
-
-; (form after ((e1 e2) a s r m)
-;   (mev (cons (list e1 a)
-;              (list (list smark 'prot e2) a)
-;              s)
-;        r
-;        m))
-
-; (form ccc ((f) a s r m)
-;   (mev (cons (list (list f (list 'lit 'cont s r))
-;                    a)
-;              s)
-;        r
-;        m))
-
-; (form thread ((e) a s r (p g))
-;   (mev s
-;        (cons nil r)
-;        (list (cons (list (list (list e a))
-;                          nil)
-;                    p)
-;              g)))
-
-; (def evcall (e a s r m)
-;   (mev (cons (list (car e) a)
-;              (fu (s r m)
-;                (evcall2 (cdr e) a s r m))
-;              s)
-;        r
-;        m))
-
-; (def evcall2 (es a s (op . r) m)
-;   (if ((isa 'mac) op)
-;       (applym op es a s r m)
-;       (mev (append (map [list _ a] es)
-;                    (cons (fu (s r m)
-;                            (let (args r2) (snap es r)
-;                              (applyf op (rev args) a s r2 m)))
-;                          s))
-;            r
-;            m)))
-
-; (def applym (mac args a s r m)
-;   (applyf (caddr mac)
-;           args
-;           a
-;           (cons (fu (s r m)
-;                   (mev (cons (list (car r) a) s)
-;                        (cdr r)
-;                        m))
-;                 s)
-;           r
-;           m))
-
-; (def applyf (f args a s r m)
-;   (if (= f apply)    (applyf (car args) (reduce join (cdr args)) a s r m)
-;       (caris f 'lit) (if (proper f)
-;                          (applylit f args a s r m)
-;                          (sigerr 'bad-lit s r m))
-;                      (sigerr 'cannot-apply s r m)))
-
-; (def applylit (f args a s r m)
-;   (aif (and (inwhere s) (find [(car _) f] locfns))
-;        ((cadr it) f args a s r m)
-;        (let (tag . rest) (cdr f)
-;          (case tag
-;            prim (applyprim (car rest) args s r m)
-;            clo  (let ((o env) (o parms) (o body) . extra) rest
-;                   (if (and (okenv env) (okparms parms))
-;                       (applyclo parms args env body s r m)
-;                       (sigerr 'bad-clo s r m)))
-;            mac  (applym f (map [list 'quote _] args) a s r m)
-;            cont (let ((o s2) (o r2) . extra) rest
-;                   (if (and (okstack s2) (proper r2))
-;                       (applycont s2 r2 args s r m)
-;                       (sigerr 'bad-cont s r m)))
-;                 (aif (get tag virfns)
-;                      (let e ((cdr it) f (map [list 'quote _] args))
-;                        (mev (cons (list e a) s) r m))
-;                      (sigerr 'unapplyable s r m))))))
-
-; (set virfns nil)
-
-; (mac vir (tag . rest)
-;   `(set virfns (put ',tag (fn ,@rest) virfns)))
-
-; (set locfns nil)
-
-; (mac loc (test . rest)
-;   `(set locfns (cons (list ,test (fn ,@rest)) locfns)))
-
-; (loc (is car) (f args a s r m)
-;   (mev (cdr s) (cons (list (car args) 'a) r) m))
-
-; (loc (is cdr) (f args a s r m)
-;   (mev (cdr s) (cons (list (car args) 'd) r) m))
-
-; (def okenv (a)
-;   (and (proper a) (all pair a)))
-
-; (def okstack (s)
-;   (and (proper s)
-;        (all [and (proper _) (cdr _) (okenv (cadr _))]
-;             s)))
-
-; (def okparms (p)
-;   (if (no p)       t
-;       (variable p) t
-;       (atom p)     nil
-;       (caris p t)  (oktoparm p)
-;                    (and (if (caris (car p) o)
-;                             (oktoparm (car p))
-;                             (okparms (car p)))
-;                         (okparms (cdr p)))))
-
-; (def oktoparm ((tag (o var) (o e) . extra))
-;   (and (okparms var) (or (= tag o) e) (no extra)))
-
-; (set prims '((id join xar xdr wrb ops)
-;              (car cdr type sym nom rdb cls stat sys)
-;              (coin)))
-
-; (def applyprim (f args s r m)
-;   (aif (some [mem f _] prims)
-;        (if (udrop (cdr it) args)
-;            (sigerr 'overargs s r m)
-;            (with (a (car args)
-;                   b (cadr args))
-;              (eif v (case f
-;                       id   (id a b)
-;                       join (join a b)
-;                       car  (car a)
-;                       cdr  (cdr a)
-;                       type (type a)
-;                       xar  (xar a b)
-;                       xdr  (xdr a b)
-;                       sym  (sym a)
-;                       nom  (nom a)
-;                       wrb  (wrb a b)
-;                       rdb  (rdb a)
-;                       ops  (ops a b)
-;                       cls  (cls a)
-;                       stat (stat a)
-;                       coin (coin)
-;                       sys  (sys a))
-;                     (sigerr v s r m)
-;                     (mev s (cons v r) m))))
-;        (sigerr 'unknown-prim s r m)))
-
-; (def applyclo (parms args env body s r m)
-;   (mev (cons (fu (s r m)
-;                (pass parms args env s r m))
-;              (fu (s r m)
-;                (mev (cons (list body (car r)) s)
-;                     (cdr r)
-;                     m))
-;              s)
-;        r
-;        m))
-
-; (def pass (pat arg env s r m)
-;   (let ret [mev s (cons _ r) m]
-;     (if (no pat)       (if arg
-;                            (sigerr 'overargs s r m)
-;                            (ret env))
-;         (literal pat)  (sigerr 'literal-parm s r m)
-;         (variable pat) (ret (cons (cons pat arg) env))
-;         (caris pat t)  (typecheck (cdr pat) arg env s r m)
-;         (caris pat o)  (pass (cadr pat) arg env s r m)
-;                        (destructure pat arg env s r m))))
-
-; (def typecheck ((var f) arg env s r m)
-;   (mev (cons (list (list f (list 'quote arg)) env)
-;              (fu (s r m)
-;                (if (car r)
-;                    (pass var arg env s (cdr r) m)
-;                    (sigerr 'mistype s r m)))
-;              s)
-;        r
-;        m))
-
-; (def destructure ((p . ps) arg env s r m)
-;   (if (no arg)   (if (caris p o)
-;                      (mev (cons (list (caddr p) env)
-;                                 (fu (s r m)
-;                                   (pass (cadr p) (car r) env s (cdr r) m))
-;                                 (fu (s r m)
-;                                   (pass ps nil (car r) s (cdr r) m))
-;                                 s)
-;                           r
-;                           m)
-;                      (sigerr 'underargs s r m))
-;       (atom arg) (sigerr 'atom-arg s r m)
-;                  (mev (cons (fu (s r m)
-;                               (pass p (car arg) env s r m))
-;                             (fu (s r m)
-;                               (pass ps (cdr arg) (car r) s (cdr r) m))
-;                             s)
-;                       r
-;                       m)))
-
-; (def applycont (s2 r2 args s r m)
-;   (if (or (no args) (cdr args))
-;       (sigerr 'wrong-no-args s r m)
-;       (mev (append (keep [and (protected _) (no (mem _ s2 id))]
-;                          s)
-;                    s2)
-;            (cons (car args) r2)
-;            m)))
-
-; (def protected (x)
-;   (some [begins (car x) (list smark _) id]
-;         '(bind prot)))
-
-; (def function (x)
-;   (find [(isa _) x] '(prim clo)))
-
-; (def con (x)
-;   (fn args x))
-
-; (def compose fs
-;   (reduce (fn (f g)
-;             (fn args (f (apply g args))))
-;           (or fs (list idfn))))
-
-; (def combine (op)
-;   (fn fs
-;     (reduce (fn (f g)
-;               (fn args
-;                 (op (apply f args) (apply g args))))
-;             (or fs (list (con (op)))))))
-
-; (set cand (combine and)
-;      cor  (combine or))
-
-; (def foldl (f base . args)
-;   (if (or (no args) (some no args))
-;       base
-;       (apply foldl f
-;                    (apply f (snoc (map car args) base))
-;                    (map cdr args))))
-
-; (def foldr (f base . args)
-;   (if (or (no args) (some no args))
-;       base
-;       (apply f (snoc (map car args)
-;                      (apply foldr f base (map cdr args))))))
-
-; (def of (f g)
-;   (fn args (apply f (map g args))))
-
-; (def upon args
-;   [apply _ args])
-
-; (def pairwise (f xs)
-;   (or (no (cdr xs))
-;       (and (f (car xs) (cadr xs))
-;            (pairwise f (cdr xs)))))
-
-; (def fuse (f . args)
-;   (apply append (apply map f args)))
-
-; (mac letu (v . body)
-;   (if ((cor variable atom) v)
-;       `(let ,v (uvar) ,@body)
-;       `(with ,(fuse [list _ '(uvar)] v)
-;          ,@body)))
-
-; (mac pcase (expr . args)
-;   (if (no (cdr args))
-;       (car args)
-;       (letu v
-;         `(let ,v ,expr
-;            (if (,(car args) ,v)
-;                ,(cadr args)
-;                (pcase ,v ,@(cddr args)))))))
-
-; (def match (x pat)
-;   (if (= pat t)                t
-;       (function pat)           (pat x)
-;       (or (atom x) (atom pat)) (= x pat)
-;                                (and (match (car x) (car pat))
-;                                     (match (cdr x) (cdr pat)))))
-
-; (def split (f xs (o acc))
-;   (if ((cor atom f:car) xs)
-;       (list acc xs)
-;       (split f (cdr xs) (snoc acc (car xs)))))
-
-; (mac when (expr . body)
-;   `(if ,expr (do ,@body)))
-
-; (mac unless (expr . body)
-;   `(when (no ,expr) ,@body))
-
-; (set i0  nil
-;      i1  '(t)
-;      i2  '(t t)
-;      i10 '(t t t t t t t t t t)
-;      i16 '(t t t t t t t t t t t t t t t t))
-
-; (set i< udrop)
-
-; (def i+ args
-;   (apply append args))
-
-; (def i- (x y)
-;   (if (no x) (list '- y)
-;       (no y) (list '+ x)
-;              (i- (cdr x) (cdr y))))
-
-; (def i* args
-;   (foldr (fn (x y) (fuse (con x) y))
-;          i1
-;          args))
-
-; (def i/ (x y (o q))
-;   (if (no x)   (list q nil)
-;       (i< x y) (list q x)
-;                (i/ (udrop y x) y (i+ q i1))))
-
-; (def i^ (x y)
-;   (foldr i* i1 (map (con x) y)))
-
-; (def r+ ((xn xd) (yn yd))
-;   (list (i+ (i* xn yd) (i* yn xd))
-;         (i* xd yd)))
-
-; (def r- ((xn xd) (yn yd))
-;   (let (s n) (i- (i* xn yd) (i* yn xd))
-;     (list s n (i* xd yd))))
-
-; (def r* ((xn xd) (yn yd))
-;   (list (i* xn yn) (i* xd yd)))
-
-; (def r/ ((xn xd) (yn yd))
-;   (list (i* xn yd) (i* xd yn)))
-
-; (set srzero (list '+ i0 i1)
-;      srone  (list '+ i1 i1))
-
-; (def sr+ ((xs . xr) (ys . yr))
-;   (if (= xs '-)
-;       (if (= ys '-)
-;           (cons '- (r+ xr yr))
-;           (r- yr xr))
-;       (if (= ys '-)
-;           (r- xr yr)
-;           (cons '+ (r+ xr yr)))))
-
-; (def sr- (x y)
-;   (sr+ x (srinv y)))
-
-; (def srinv ((s n d))
-;   (list (if (and (= s '+) (~= n i0)) '- '+)
-;         n
-;         d))
-
-; (def sr* ((xs . xr) (ys . yr))
-;   (cons (if (= xs '-)
-;             (case ys - '+ '-)
-;             ys)
-;         (r* xr yr)))
-
-; (def sr/ (x y)
-;   (sr* x (srrecip y)))
-
-; (def srrecip ((s (t n [~= _ i0]) d))
-;   (list s d n))
-
-; (def sr< ((xs xn xd) (ys yn yd))
-;   (if (= xs '+)
-;       (if (= ys '+)
-;           (i< (i* xn yd) (i* yn xd))
-;           nil)
-;       (if (= ys '+)
-;           (~= xn yn i0)
-;           (i< (i* yn xd) (i* xn yd)))))
-
-; (set srnum cadr
-;      srden caddr)
-
-; (def c+ ((xr xi) (yr yi))
-;   (list (sr+ xr yr) (sr+ xi yi)))
-
-; (def c* ((xr xi) (yr yi))
-;   (list (sr- (sr* xr yr) (sr* xi yi))
-;         (sr+ (sr* xi yr) (sr* xr yi))))
-
-; (def litnum (r (o i srzero))
-;   (list 'lit 'num r i))
-
-; (def number (x)
-;   (let r (fn (y)
-;            (match y (list [in _ '+ '-] proper proper)))
-;     (match x `(lit num ,r ,r))))
+(form quote ((e) a s r m)
+  (mev s (cons e r) m))
+
+(form if (es a s r m)
+  (if (no es)
+      (mev s (cons nil r) m)
+      (mev (cons (list (car es) a)
+                 (if (cdr es)
+                     (cons (fu (s r m)
+                             (if2 (cdr es) a s r m))
+                           s)
+                     s))
+           r
+           m)))
+
+(def if2 (es a s r m)
+  (mev (cons (list (if (car r)
+                       (car es)
+                       (cons 'if (cdr es)))
+                   a)
+             s)
+       (cdr r)
+       m))
+
+(form where ((e (o new)) a s r m)
+  (mev (cons (list e a)
+             (list (list smark 'loc new) nil)
+             s)
+       r
+       m))
+
+(form dyn ((v e1 e2) a s r m)
+  (if (variable v)
+      (mev (cons (list e1 a)
+                 (fu (s r m) (dyn2 v e2 a s r m))
+                 s)
+           r
+           m)
+      (sigerr 'cannot-bind s r m)))
+
+(def dyn2 (v e2 a s r m)
+  (mev (cons (list e2 a)
+             (list (list smark 'bind (cons v (car r)))
+                   nil)
+             s)
+       (cdr r)
+       m))
+
+(form after ((e1 e2) a s r m)
+  (mev (cons (list e1 a)
+             (list (list smark 'prot e2) a)
+             s)
+       r
+       m))
+
+(form ccc ((f) a s r m)
+  (mev (cons (list (list f (list 'lit 'cont s r))
+                   a)
+             s)
+       r
+       m))
+
+(form thread ((e) a s r (p g))
+  (mev s
+       (cons nil r)
+       (list (cons (list (list (list e a))
+                         nil)
+                   p)
+             g)))
+
+(def evcall (e a s r m)
+  (mev (cons (list (car e) a)
+             (fu (s r m)
+               (evcall2 (cdr e) a s r m))
+             s)
+       r
+       m))
+
+(def evcall2 (es a s (op . r) m)
+  (if ((isa 'mac) op)
+      (applym op es a s r m)
+      (mev (append (map [list _ a] es)
+                   (cons (fu (s r m)
+                           (let (args r2) (snap es r)
+                             (applyf op (rev args) a s r2 m)))
+                         s))
+           r
+           m)))
+
+(def applym (mac args a s r m)
+  (applyf (caddr mac)
+          args
+          a
+          (cons (fu (s r m)
+                  (mev (cons (list (car r) a) s)
+                       (cdr r)
+                       m))
+                s)
+          r
+          m))
+
+(def applyf (f args a s r m)
+  (if (= f apply)    (applyf (car args) (reduce join (cdr args)) a s r m)
+      (caris f 'lit) (if (proper f)
+                         (applylit f args a s r m)
+                         (sigerr 'bad-lit s r m))
+                     (sigerr 'cannot-apply s r m)))
+
+(def applylit (f args a s r m)
+  (aif (and (inwhere s) (find [(car _) f] locfns))
+       ((cadr it) f args a s r m)
+       (let (tag . rest) (cdr f)
+         (case tag
+           prim (applyprim (car rest) args s r m)
+           clo  (let ((o env) (o parms) (o body) . extra) rest
+                  (if (and (okenv env) (okparms parms))
+                      (applyclo parms args env body s r m)
+                      (sigerr 'bad-clo s r m)))
+           mac  (applym f (map [list 'quote _] args) a s r m)
+           cont (let ((o s2) (o r2) . extra) rest
+                  (if (and (okstack s2) (proper r2))
+                      (applycont s2 r2 args s r m)
+                      (sigerr 'bad-cont s r m)))
+                (aif (get tag virfns)
+                     (let e ((cdr it) f (map [list 'quote _] args))
+                       (mev (cons (list e a) s) r m))
+                     (sigerr 'unapplyable s r m))))))
+
+(set virfns nil)
+
+(mac vir (tag . rest)
+  `(set virfns (put ',tag (fn ,@rest) virfns)))
+
+(set locfns nil)
+
+(mac loc (test . rest)
+  `(set locfns (cons (list ,test (fn ,@rest)) locfns)))
+
+(loc (is car) (f args a s r m)
+  (mev (cdr s) (cons (list (car args) 'a) r) m))
+
+(loc (is cdr) (f args a s r m)
+  (mev (cdr s) (cons (list (car args) 'd) r) m))
+
+(def okenv (a)
+  (and (proper a) (all pair a)))
+
+(def okstack (s)
+  (and (proper s)
+       (all [and (proper _) (cdr _) (okenv (cadr _))]
+            s)))
+
+(def okparms (p)
+  (if (no p)       t
+      (variable p) t
+      (atom p)     nil
+      (caris p t)  (oktoparm p)
+                   (and (if (caris (car p) o)
+                            (oktoparm (car p))
+                            (okparms (car p)))
+                        (okparms (cdr p)))))
+
+(def oktoparm ((tag (o var) (o e) . extra))
+  (and (okparms var) (or (= tag o) e) (no extra)))
+
+(set prims '((id join xar xdr wrb ops)
+             (car cdr type sym nom rdb cls stat sys)
+             (coin)))
+
+(def applyprim (f args s r m)
+  (aif (some [mem f _] prims)
+       (if (udrop (cdr it) args)
+           (sigerr 'overargs s r m)
+           (with (a (car args)
+                  b (cadr args))
+             (eif v (case f
+                      id   (id a b)
+                      join (join a b)
+                      car  (car a)
+                      cdr  (cdr a)
+                      type (type a)
+                      xar  (xar a b)
+                      xdr  (xdr a b)
+                      sym  (sym a)
+                      nom  (nom a)
+                      wrb  (wrb a b)
+                      rdb  (rdb a)
+                      ops  (ops a b)
+                      cls  (cls a)
+                      stat (stat a)
+                      coin (coin)
+                      sys  (sys a))
+                    (sigerr v s r m)
+                    (mev s (cons v r) m))))
+       (sigerr 'unknown-prim s r m)))
+
+(def applyclo (parms args env body s r m)
+  (mev (cons (fu (s r m)
+               (pass parms args env s r m))
+             (fu (s r m)
+               (mev (cons (list body (car r)) s)
+                    (cdr r)
+                    m))
+             s)
+       r
+       m))
+
+(def pass (pat arg env s r m)
+  (let ret [mev s (cons _ r) m]
+    (if (no pat)       (if arg
+                           (sigerr 'overargs s r m)
+                           (ret env))
+        (literal pat)  (sigerr 'literal-parm s r m)
+        (variable pat) (ret (cons (cons pat arg) env))
+        (caris pat t)  (typecheck (cdr pat) arg env s r m)
+        (caris pat o)  (pass (cadr pat) arg env s r m)
+                       (destructure pat arg env s r m))))
+
+(def typecheck ((var f) arg env s r m)
+  (mev (cons (list (list f (list 'quote arg)) env)
+             (fu (s r m)
+               (if (car r)
+                   (pass var arg env s (cdr r) m)
+                   (sigerr 'mistype s r m)))
+             s)
+       r
+       m))
+
+(def destructure ((p . ps) arg env s r m)
+  (if (no arg)   (if (caris p o)
+                     (mev (cons (list (caddr p) env)
+                                (fu (s r m)
+                                  (pass (cadr p) (car r) env s (cdr r) m))
+                                (fu (s r m)
+                                  (pass ps nil (car r) s (cdr r) m))
+                                s)
+                          r
+                          m)
+                     (sigerr 'underargs s r m))
+      (atom arg) (sigerr 'atom-arg s r m)
+                 (mev (cons (fu (s r m)
+                              (pass p (car arg) env s r m))
+                            (fu (s r m)
+                              (pass ps (cdr arg) (car r) s (cdr r) m))
+                            s)
+                      r
+                      m)))
+
+(def applycont (s2 r2 args s r m)
+  (if (or (no args) (cdr args))
+      (sigerr 'wrong-no-args s r m)
+      (mev (append (keep [and (protected _) (no (mem _ s2 id))]
+                         s)
+                   s2)
+           (cons (car args) r2)
+           m)))
+
+(def protected (x)
+  (some [begins (car x) (list smark _) id]
+        '(bind prot)))
+
+(def function (x)
+  (find [(isa _) x] '(prim clo)))
+
+(def con (x)
+  (fn args x))
+
+(def compose fs
+  (reduce (fn (f g)
+            (fn args (f (apply g args))))
+          (or fs (list idfn))))
+
+(def combine (op)
+  (fn fs
+    (reduce (fn (f g)
+              (fn args
+                (op (apply f args) (apply g args))))
+            (or fs (list (con (op)))))))
+
+(set cand (combine and)
+     cor  (combine or))
+
+(def foldl (f base . args)
+  (if (or (no args) (some no args))
+      base
+      (apply foldl f
+                   (apply f (snoc (map car args) base))
+                   (map cdr args))))
+
+(def foldr (f base . args)
+  (if (or (no args) (some no args))
+      base
+      (apply f (snoc (map car args)
+                     (apply foldr f base (map cdr args))))))
+
+(def of (f g)
+  (fn args (apply f (map g args))))
+
+(def upon args
+  [apply _ args])
+
+(def pairwise (f xs)
+  (or (no (cdr xs))
+      (and (f (car xs) (cadr xs))
+           (pairwise f (cdr xs)))))
+
+(def fuse (f . args)
+  (apply append (apply map f args)))
+
+(mac letu (v . body)
+  (if ((cor variable atom) v)
+      `(let ,v (uvar) ,@body)
+      `(with ,(fuse [list _ '(uvar)] v)
+         ,@body)))
+
+(mac pcase (expr . args)
+  (if (no (cdr args))
+      (car args)
+      (letu v
+        `(let ,v ,expr
+           (if (,(car args) ,v)
+               ,(cadr args)
+               (pcase ,v ,@(cddr args)))))))
+
+(def match (x pat)
+  (if (= pat t)                t
+      (function pat)           (pat x)
+      (or (atom x) (atom pat)) (= x pat)
+                               (and (match (car x) (car pat))
+                                    (match (cdr x) (cdr pat)))))
+
+(def split (f xs (o acc))
+  (if ((cor atom f:car) xs)
+      (list acc xs)
+      (split f (cdr xs) (snoc acc (car xs)))))
+
+(mac when (expr . body)
+  `(if ,expr (do ,@body)))
+
+(mac unless (expr . body)
+  `(when (no ,expr) ,@body))
+
+(set i0  nil
+     i1  '(t)
+     i2  '(t t)
+     i10 '(t t t t t t t t t t)
+     i16 '(t t t t t t t t t t t t t t t t))
+
+(set i< udrop)
+
+(def i+ args
+  (apply append args))
+
+(def i- (x y)
+  (if (no x) (list '- y)
+      (no y) (list '+ x)
+             (i- (cdr x) (cdr y))))
+
+(def i* args
+  (foldr (fn (x y) (fuse (con x) y))
+         i1
+         args))
+
+(def i/ (x y (o q))
+  (if (no x)   (list q nil)
+      (i< x y) (list q x)
+               (i/ (udrop y x) y (i+ q i1))))
+
+(def i^ (x y)
+  (foldr i* i1 (map (con x) y)))
+
+(def r+ ((xn xd) (yn yd))
+  (list (i+ (i* xn yd) (i* yn xd))
+        (i* xd yd)))
+
+(def r- ((xn xd) (yn yd))
+  (let (s n) (i- (i* xn yd) (i* yn xd))
+    (list s n (i* xd yd))))
+
+(def r* ((xn xd) (yn yd))
+  (list (i* xn yn) (i* xd yd)))
+
+(def r/ ((xn xd) (yn yd))
+  (list (i* xn yd) (i* xd yn)))
+
+(set srzero (list '+ i0 i1)
+     srone  (list '+ i1 i1))
+
+(def sr+ ((xs . xr) (ys . yr))
+  (if (= xs '-)
+      (if (= ys '-)
+          (cons '- (r+ xr yr))
+          (r- yr xr))
+      (if (= ys '-)
+          (r- xr yr)
+          (cons '+ (r+ xr yr)))))
+
+(def sr- (x y)
+  (sr+ x (srinv y)))
+
+(def srinv ((s n d))
+  (list (if (and (= s '+) (~= n i0)) '- '+)
+        n
+        d))
+
+(def sr* ((xs . xr) (ys . yr))
+  (cons (if (= xs '-)
+            (case ys - '+ '-)
+            ys)
+        (r* xr yr)))
+
+(def sr/ (x y)
+  (sr* x (srrecip y)))
+
+(def srrecip ((s (t n [~= _ i0]) d))
+  (list s d n))
+
+(def sr< ((xs xn xd) (ys yn yd))
+  (if (= xs '+)
+      (if (= ys '+)
+          (i< (i* xn yd) (i* yn xd))
+          nil)
+      (if (= ys '+)
+          (~= xn yn i0)
+          (i< (i* yn xd) (i* xn yd)))))
+
+(set srnum cadr
+     srden caddr)
+
+(def c+ ((xr xi) (yr yi))
+  (list (sr+ xr yr) (sr+ xi yi)))
+
+(def c* ((xr xi) (yr yi))
+  (list (sr- (sr* xr yr) (sr* xi yi))
+        (sr+ (sr* xi yr) (sr* xr yi))))
+
+(def litnum (r (o i srzero))
+  (list 'lit 'num r i))
+
+(def number (x)
+  (let r (fn (y)
+           (match y (list [in _ '+ '-] proper proper)))
+    (match x `(lit num ,r ,r))))
 
 ; (set numr car:cddr
 ;      numi cadr:cddr)
