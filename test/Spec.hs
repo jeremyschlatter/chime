@@ -329,6 +329,7 @@ spec = do
         >> "x"
         > "a" --   <-- the sets should not have evaluated, so x should still be a
       "(and t t nil t)" `is` "nil"
+      "(~atom 'a)" `is` "nil"
 
 
 -- ----------------------------------------------------------------------------

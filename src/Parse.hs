@@ -37,10 +37,14 @@ regularChar :: Parser Char
 regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/;<=>?@^_{|}~¦") <?> "regular character"
 
 composedSymbols :: Parser (Object Identity)
-composedSymbols = sepBy1 (Symbol <$> symbol) (char ':') <&> compose where
-  symbol :: Parser Symbol
-  symbol = (lexeme $ some1 regularChar <&> MkSymbol)
-        <|> try (lexLit "(" *> lexLit ")" $> Nil)
+composedSymbols = sepBy1 tildeSymbol (char ':') <&> compose where
+  tildeSymbol :: Parser (Object Identity)
+  tildeSymbol = bisequence (optional (char '~'), symbol) <&> \case
+    (Nothing, x) -> x
+    (Just _, x) -> compose $ Sym 'n' "o" :| [x]
+  symbol :: Parser (Object Identity)
+  symbol = (lexeme $ some1 regularChar <&> Symbol . MkSymbol)
+        <|> try (lexLit "(" *> lexLit ")" $> Symbol Nil)
   compose :: NonEmpty (Object Identity) -> Object Identity
   compose = \case
     x :| [] -> x
