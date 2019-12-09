@@ -420,7 +420,7 @@ replOutput (ios, in_) out = (in_, out) : ios
 
 preludeIO :: IO EvalState
 preludeIO = do
-  let input = "test/part-of-bel.bel"
+  let input = "reference/bel.bel"
   es <- bel input
   either
     (\e -> failure $ "failed to parse " <> input <> ": " <> e)
