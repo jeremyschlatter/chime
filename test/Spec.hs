@@ -280,8 +280,7 @@ spec = do
       "(mem 'b '(a b c))" `is` "(b c)"
       "(mem 'e '(a b c))" `is` "nil"
       "(mem \\a \"foobar\")" `is` "\"ar\""
-      -- @incomplete: uncomment this when > is implemented:
-      -- "(mem 3 '(2 4 6 8) >)" `is` "(4 6 8)"
+      "(mem 3 '(2 4 6 8) >)" `is` "(4 6 8)"
       replTest $ []
         >> "(def sname (s) (case s + 'plus - 'minus 'unknown))"
         > "..."
@@ -293,16 +292,14 @@ spec = do
       "(begins '(a b c d e) '(a b))" `is` "t"
       "(caris '(a b) 'a)" `is` "t"
       "(hug '(a b c d e))" `is` "((a b) (c d) (e))"
-      -- @incomplete: uncomment this when + is implemented
-      -- "(hug '(1 2 3 4 5) +)" `is` "(3 7 5)"
+      "(hug '(1 2 3 4 5) +)" `is` "(3 7 5)"
       "(with (x 'a  \
       \       y 'b) \
       \  (cons x y))" `is` "(a . b)"
       -- @incomplete: uncomment when odd is implemented
       -- "(keep odd '(1 2 3 4 5))" `is` "(1 3 5)"
       "(rem \\a \"abracadabra\")" `is` "\"brcdbr\""
-      -- @incomplete: uncomment when >= is implemented
-      -- "(rem 4 '(5 3 1 2 4) >=)" `is` "(3 1 2)"
+      "(rem 4 '(5 3 1 2 4) >=)" `is` "(3 1 2)"
       replTest $ []
         >> "(set x '((a . 1) (b . 2) (c . 3)))"
         > "((a . 1) (b . 2) (c . 3))"
@@ -310,10 +307,9 @@ spec = do
         > "(a . 1)"
         >> "(get 'z x)"
         > "nil"
-        -- @incomplete: unquote 26 and 9 when numbers are implemented
-        >> "(put 'z '26 x)"
+        >> "(put 'z 26 x)"
         > "((z . 26) (a . 1) (b . 2) (c . 3))"
-        >> "(put 'a '9 x)"
+        >> "(put 'a 9 x)"
         > "((a . 9) (b . 2) (c . 3))"
       "(rev \"able\")" `is` "\"elba\""
       "(snap '(a b) '(1 2 3 4 5))" `is` "((1 2) (3 4 5))"
