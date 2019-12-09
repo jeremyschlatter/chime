@@ -15,6 +15,7 @@ dependencies:
 
 default-extensions:
 - BlockArguments
+- DeriveFunctor
 - EmptyCase
 - FlexibleContexts
 - FlexibleInstances

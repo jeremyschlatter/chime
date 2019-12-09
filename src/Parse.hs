@@ -34,28 +34,59 @@ lexLit :: String -> Parser ()
 lexLit = void <$> L.symbol sc
 
 regularChar :: Parser Char
-regularChar = (alphaNumChar <|> oneOf "!#$%&*+-/;<=>?@^_{|}~¦") <?> "regular character"
+regularChar = (alphaNumChar <|> oneOf "#$%&*+-/;<=>?@^_{}¦") <?> "regular character"
+
+data DotBang a = Dot a | Bang a deriving Functor
 
 composedSymbols :: Parser (Object Identity)
-composedSymbols = sepBy1 tildeSymbol (char ':') <&> compose where
-  tildeSymbol :: Parser (Object Identity)
-  tildeSymbol = bisequence (optional (char '~'), symbol) <&> \case
+composedSymbols = let
+  -- regular symbols
+  s0 :: Parser (Object Identity)
+  s0 = (some1 regularChar <&> Symbol . MkSymbol)
+       <|> try (lexLit "(" *> lexLit ")" $> Symbol Nil)
+  -- numbers
+  s1 :: Parser (Object Identity)
+  s1 = try number <|> s0
+  -- tildes
+  s2 :: Parser (Object Identity)
+  s2 = bisequence (optional (char '~'), s1) <&> \case
     (Nothing, x) -> x
     (Just _, x) -> compose $ Sym 'n' "o" :| [x]
-  symbol :: Parser (Object Identity)
-  symbol = (lexeme $ some1 regularChar <&> Symbol . MkSymbol)
-        <|> try (lexLit "(" *> lexLit ")" $> Symbol Nil)
+  -- colon
+  s3 :: Parser (Object Identity)
+  s3 = sepBy1 s2 (char ':') <&> compose
+  -- . and !
+  s4 :: Parser (Object Identity)
+  s4 = bisequence (bisequence (optional (dotBang (pure ())), s3), many (dotBang s3)) <&> \case
+    ((Just f, x), xs) -> go (Sym 'u' "pon") ((f $> x) : xs)
+    ((Nothing, x), []) -> x
+    ((Nothing, x), xs) -> go x xs
+    where
+      go :: Object Identity -> [DotBang (Object Identity)] -> Object Identity
+      go = curry $ runIdentity . \case
+        (a, []) -> a .* "nil"
+        (a, Dot b : cs) -> a .* go b cs
+        (a, Bang b : cs) -> a .* go (runIdentity $ quote b) cs
+  -- |
+  s5 :: Parser (Object Identity)
+  s5 = sepBy1 s4 (char '|') <&> go where
+    go = \case
+      a :| [] -> a
+      a :| b:cs -> listToPair' [Sym 't' "", a, go (b:|cs)]
+  dotBang :: Parser a -> Parser (DotBang a)
+  dotBang = (((char '.' $> Dot) <|> (char '!' $> Bang)) <*>)
   compose :: NonEmpty (Object Identity) -> Object Identity
   compose = \case
     x :| [] -> x
     xs -> listToPair' $ NE.toList $ o "compose" <| xs
+  in lexeme s5
 
 surround :: String -> String -> Parser a -> Parser a
 surround a b x = lexLit a *> x <* lexLit b
 
 string :: Parser (Object Identity)
 string = surround "\"" "\"" (listToPair' . (fmap Character) <$>
-  many (character' (regularChar <|> oneOf ",`'\\.[](): ")))
+  many (character' (regularChar <|> oneOf ",`'\\.[](): !~|")))
 
 pair :: Parser (Pair Identity)
 pair = surround "(" ")" pair' where
@@ -70,7 +101,7 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
     (foldl (flip \(s, c) -> ((lexLit s $> c) <|>)) empty controlChars)
 
 character :: Parser Character
-character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]():")
+character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]():!~|")
 
 quotedExpression :: Parser (Object Identity)
 quotedExpression = char '\'' *> expression <&> runIdentity . quote
@@ -115,8 +146,7 @@ number = lexeme (o <$> complex) where
   opt p = fmap Just p <|> pure Nothing
 
 expression :: Parser (Object Identity)
-expression =  (try number)
-          <|> composedSymbols
+expression =  composedSymbols
           <|> quotedExpression
           <|> backQuotedList
           <|> commaExpr

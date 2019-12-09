@@ -39,6 +39,8 @@ spec = do
       "'a" `is` "'a"
       "[f _ x]" `is` "(fn (_) (f _ x))"
       "(lit num (+ (t t) (t t t)) (+ () (t)))" `is` "2/3"
+      "a.b" `is` "(a b)"
+      "a!b" `is` "(a 'b)"
 
     it "parses and prints other examples" do
       "( )" `is` "nil"
@@ -98,6 +100,14 @@ spec = do
       "(dyn x 'z (join x 'b))" `is` "(z . b)"
       "((lit clo ((x . a)) (y) (join x y)) 'b)" `is` "(a . b)"
 
+      "'for|2" `is` "(t for 2)"
+      -- @consider: the Bel language guide prints this as "(a (quote b) c)"
+      -- I prefer the version here, but is that spec-compliant? Same elsewhere.
+      "'a!b.c" `is` "(a 'b c)"
+      "'!a" `is` "(upon 'a)"
+      "'a:b:c" `is` "(compose a b c)"
+      "'x|~f:g!a" `is` "(t x ((compose (compose no f) g) 'a))"
+
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""
       "(if)" `is` "nil"
@@ -116,6 +126,7 @@ spec = do
       "(after a 'b)" `is` "b"
       "((lit clo nil (x) (join x 'b)) 'a)" `is` "(a . b)"
       "(mac n p e)" `is` "(lit mac (lit clo nil p e))"
+      "'(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
 
   describe "multi-line repl sessions" do
 
