@@ -50,7 +50,7 @@
       `(list 'lit 'clo scope ',parms ',(car body))
       `(list 'lit 'clo scope ',parms '(do ,@body))))
 
-; (set vmark (join))
+(set vmark (join))
 
 (def uvar ()
   (list vmark))

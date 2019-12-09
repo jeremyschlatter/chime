@@ -207,6 +207,10 @@ specialForms = (\f -> (formName f, f)) <$>
       go r = \case
         [] -> pure r
         [_] -> throwError "Odd number of arguments to set."
+
+        -- Quietly ignore attempts to overwrite vmark.
+        Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
+
         var:val:rest -> runMaybeT (toVariable var) >>= \case
           Just v -> evaluate val >>= \val' -> (globe %= ((v, val'):)) *> go val' rest
           _ -> throwError "Tried to assign to a non-variable with set"
