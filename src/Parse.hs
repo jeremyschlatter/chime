@@ -156,13 +156,18 @@ expression =  composedSymbols
           <|> (Pair . Identity <$> pair)
           <|> (Character <$> character)
 
+bom :: Parser ()
+bom = void $ char '\xfeff'
+
 parse :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> Either (ParseErrorBundle String Void) (m (Object r))
-parse = M.parse (runIdentity . refSwap <$> (sc *> expression <* eof))
+parse = M.parse (runIdentity . refSwap <$>
+  (optional bom *> sc *> expression <* eof))
 
 parseMany :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> Either (ParseErrorBundle String Void) (m [Object r])
-parseMany = M.parse (traverse (runIdentity . refSwap) <$> (sc *> many expression <* eof))
+parseMany = M.parse (traverse (runIdentity . refSwap) <$>
+  (optional bom *> sc *> many expression <* eof))
 
 isEmptyLine :: String -> Bool
 isEmptyLine = isJust . parseMaybe (sc *> eof)
