@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude hiding (evaluate, getEnv, head, tail, (-), (*))
+import BasePrelude hiding (evaluate, getEnv, head, tail)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Except
@@ -34,22 +34,12 @@ data EvalState = EvalState
  , _scope :: NonEmpty Environment
  , _locs :: [()]
  , _dyns :: Environment
- , _debug :: [String]
  , _vmark :: IORef (Pair IORef)
  }
 $(makeLenses ''EvalState)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
-emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
-
-class MonadRef m => MonadMutableRef m where
-  modifyRef :: Ref m a -> (a -> a) -> m ()
-
-instance MonadMutableRef IO where
-  modifyRef = modifyIORef
-
-instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m) where
-  modifyRef = lift .: modifyRef
+emptyState = EvalState [] (pure []) [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')) $
@@ -103,8 +93,8 @@ envLookup s = do
 toVariable :: Object IORef -> MaybeT EvalMonad Variable
 toVariable = \case
   Symbol s -> pure $ Right s
-  Pair r -> bisequence (readRef r, use vmark) >>= \case
-    (MkPair (Pair carRef, _), v) -> case carRef == v of
+  Pair r -> bisequence (readPair r, use vmark) >>= \case
+    ((Pair carRef, _), v) -> case carRef == v of
       True -> pure $ Left r
       _ -> empty
     _ -> empty
@@ -114,7 +104,7 @@ function :: [Object IORef] -> MaybeT EvalMonad Closure
 function x = case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
-      Pair r -> readRef r >>= \(MkPair (var, val)) -> (,val) <$> toVariable var
+      Pair r -> readPair r >>= \(var, val) -> (,val) <$> toVariable var
       _ -> empty
     pure $ MkClosure env' params body
   _ -> empty
@@ -227,7 +217,7 @@ specialForms = (\f -> (formName f, f)) <$>
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
       go = \case
-        Pair ref -> readRef ref >>= \(MkPair p) -> case p of
+        Pair ref -> readPair ref >>= \p -> case p of
           (Sym '~' "comma", x) -> Left <$> evaluate x
           (Sym '~' "splice", x) -> Right <$> evaluate x
           _ -> bimapM go go p >>= \(x, either id id -> cdr) -> Left <$> case x of
@@ -238,7 +228,31 @@ specialForms = (\f -> (formName f, f)) <$>
 
   , Form3 "mac" \n p e -> evaluate =<<
       ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
+
+  -- numbers
+  , numFn '+' "" $ foldr numAdd (0 :+ 0)
+  , numFn '-' "" \case
+      [] -> (0 :+ 0)
+      [a] -> (0 :+ 0) `numSub` a
+      a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
+  , numFn '*' "" $ foldr numMul (1 :+ 0)
   ]
+
+numAdd :: Number -> Number -> Number
+numAdd a b = (realPart a + realPart b) :+ (imagPart a + imagPart b)
+
+numSub :: Number -> Number -> Number
+numSub a b = (realPart a - realPart b) :+ (imagPart a - imagPart b)
+
+numMul :: Number -> Number -> Number
+numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
+
+-- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
+numFn :: (ToObject EvalMonad IORef r) => Char -> String -> ([Number] -> r) -> SpecialForm
+numFn c s f = FormN (c:s) $ (traverse (evaluate >=> runMaybeT . number)) >=> maybe
+  (throwError "non-numbers were passed to an optimized numeric function")
+  (toObject . f)
+  . sequence
 
 -- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
 (~~) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
@@ -304,13 +318,13 @@ primitives = (\p -> (primName p, p)) <$>
         Symbol Nil -> pure $ Symbol Nil
         -- If we are inside a "where", return the tuple and our location.
         -- Otherwise, we return the normal value.
-        Pair ra -> readRef ra >>= \(MkPair tup) -> use locs >>= \case
+        Pair ra -> readPair ra >>= \tup -> use locs >>= \case
           [] -> pure $ fn tup
           _ -> Pair ra ~| Sym @IORef w ""
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
-        (Pair r, y) -> (modifyRef r $ MkPair . (which $ const y) . unPair) $> y
+        (Pair r, y) -> ((readPair r <&> MkPair . (which $ const y)) >>= writeRef r) $> y
         (x, _) -> repr x >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
@@ -347,12 +361,12 @@ destructure = go where
       WhereResult x -> go x arg
       Pair pRef ->
         let go' (pf1, a1) (pf2, a2) = (<>) <$> go pf1 a1 <*> go pf2 a2
-        in readRef pRef >>= \(MkPair (p1, p2)) ->
+        in readPair pRef >>= \(p1, p2) ->
           bimapM toOptionalVar toOptionalVar (p1, p2) >>= \(o1, o2) ->
             case arg of
               Pair aRef -> do
                 let toVar v = maybe v fst
-                MkPair (a1, a2) <- readRef aRef
+                (a1, a2) <- readPair aRef
                 go' (toVar p1 o1, a1) (toVar p2 o2, a2)
               x -> case (o1, o2) of
                 (Nothing, Nothing) -> throwError "Too few arguments in function call"
@@ -371,7 +385,7 @@ with l m e = push *> m <* pop where
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate expr = bind (repr expr) $ with debug $ case expr of
+evaluate expr = case expr of
   -- characters
   c@(Character _) -> pure c
 
@@ -386,7 +400,7 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
     where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
   -- pairs
-  Pair ref -> readRef ref >>= \(MkPair (_, argTree)) ->
+  Pair ref -> readPair ref >>= \(_, argTree) ->
     (,,) <$> runMaybeT (toVariable expr) <*> string expr <*> properList1 ref >>= \case
       -- vmark references
       (Just v, _, _) -> envLookup v
@@ -420,12 +434,10 @@ evaluate expr = bind (repr expr) $ with debug $ case expr of
           Lit -> pure expr
         Closure (MkClosure env params body) -> do
           bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-          flip (with debug) "applying closure" $
-            withScope (bound <> env) (evaluate body)
+          withScope (bound <> env) (evaluate body)
         Macro (MkClosure env params body) -> do
           bound <- destructure params argTree
-          flip (with debug) "applying macro" $
-            (withScope (bound <> env) (evaluate body)) >>= evaluate
+          (withScope (bound <> env) (evaluate body)) >>= evaluate
 
       _ -> giveUp
 

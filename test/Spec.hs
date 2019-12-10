@@ -61,15 +61,15 @@ spec = do
       "apply" `is` "apply"
 
       ("chars" `isLike` flip properListOf \case
-         Pair r -> readRef r >>= \case
-           MkPair (Character _, s) -> string s
+         Pair r -> readPair r >>= \case
+           (Character _, s) -> string s
            _ -> empty
          _ -> empty
        ) "a list of pairs of (<character> . <binary representation>)"
 
       let varValList = flip properListOf \case
-                          Pair r -> readRef r <&> \case
-                            MkPair (Symbol _, _) -> Just ()
+                          Pair r -> readPair r <&> \case
+                            (Symbol _, _) -> Just ()
                             _ -> Nothing
                           _ -> empty
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
@@ -355,14 +355,11 @@ parseThenPrintShouldBe a b =
 failure :: String -> IO a
 failure = fmap undefined . expectationFailure
 
-stackTrace :: EvalState -> String
-stackTrace = intercalate "\n" . _debug
-
 evalIn :: String -> EvalState -> IO (Object IORef)
 evalIn s state =
-   readThenRunEval "test case" s state >>= \(x, postState) ->
+   readThenRunEval "test case" s state >>= \(x, _) ->
      either
-       (\e -> failure $ s <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
+       (\e -> failure $ s <> ": " <> e)
        pure
        x
 

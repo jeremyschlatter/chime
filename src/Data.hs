@@ -8,6 +8,9 @@ import Data.Bitraversable
 
 import Common
 
+-- -----------------------------------------------------------------------
+-- The read-only interface to mutable refs
+
 -- MonadRef models mutable variables.
 -- Mutable variables are a core part of the Bel data model.
 -- During evaluation, m will be IO. But we don't need or want
@@ -32,6 +35,29 @@ instance (MonadRef m, MonadTrans t, Monad (t m)) => MonadRef (t m) where
   type Ref (t m) = Ref m
   readRef = lift . readRef
   newRef = lift . newRef
+
+-- -----------------------------------------------------------------------
+-- The full read-write interface to mutable refs
+
+class MonadRef m => MonadMutableRef m where
+  modifyRef :: Ref m a -> (a -> a) -> m ()
+  writeRef :: Ref m a -> a -> m ()
+
+instance MonadMutableRef IO where
+  modifyRef = modifyIORef
+  writeRef = writeIORef
+
+instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m) where
+  modifyRef = lift .: modifyRef
+  writeRef = lift .: writeRef
+
+-- -----------------------------------------------------------------------
+
+readPair :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Object r, Object r)
+readPair x = readRef x >>= \case
+  MkPair p -> pure p
+  -- Collapse the optimized representation! :(
+  Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
 
 type Variable = Either (IORef (Pair IORef)) Symbol
 
@@ -70,7 +96,12 @@ instance ToObject m r [m (Object r)] where
     x:xs -> x .* toObject @m @r xs
 -- @performance: numbers have an obvious performance problem to solve
 instance ToObject m r (Complex Rational) where
-  toObject c = o [o "lit", o "num", num $ realPart c, num $ imagPart c] where
+  toObject n = fmap Pair $ newRef $ Number n
+
+collapseNumber
+  :: forall m r. (MonadRef m, r ~ Ref m)
+  => Complex Rational -> m (Object r, Object r)
+collapseNumber c = (Sym 'l' "it",) <$> o [o "num", num $ realPart c, num $ imagPart c] where
     num :: Rational -> m (Object r)
     num n = o [sign n, unary $ numerator $ abs n, unary $ denominator $ abs n]
     unary :: Integer -> m (Object r)
@@ -91,53 +122,59 @@ infixr 4 .*
 a .| b = a .* ((.*) @m b "nil") where
 infixr 4 .|
 
-refSwap :: (MonadRef a, MonadRef b, ra ~ Ref a, rb ~ Ref b) => Object ra -> a (b (Object rb))
+refSwap :: (MonadRef m, r ~ Ref m) => Object Identity -> Identity (m (Object r))
 refSwap = \case
   WhereResult x -> WhereResult <$$> refSwap x
   Symbol s -> pure $ pure $ Symbol s
   Character c -> pure $ pure $ Character c
   Stream -> pure $ pure Stream
-  Pair r -> do
-    MkPair (car, cdr) <- readRef r
-    car' <- refSwap car
-    cdr' <- refSwap cdr
-    pure $ do
-      car'' <- car'
-      cdr'' <- cdr'
-      car'' .* cdr''
+  Pair r -> readRef r >>= \case
+    Number n -> pure $ fmap Pair $ newRef $ Number n
+    MkPair (car, cdr) -> do
+      car' <- refSwap car
+      cdr' <- refSwap cdr
+      pure $ do
+        car'' <- car'
+        cdr'' <- cdr'
+        car'' .* cdr''
+
+type Number = Complex Rational
 
 newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
-newtype Pair r = MkPair { unPair :: (Object r, Object r) }
 newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
+data Pair r
+  = MkPair (Object r, Object r)
+  | Number Number
 
-properList1 :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
-properList1 ref = readRef ref >>=
-  \(MkPair (car, cdr)) -> fmap (car :|) <$> properList cdr
+properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
+properList1 ref = readPair ref >>=
+  \(car, cdr) -> fmap (car :|) <$> properList cdr
 
-properList :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])
+properList :: (MonadMutableRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])
 properList = \case
   Symbol Nil -> pure (Just [])
   Pair ref -> toList <$$> properList1 ref
   _ -> pure Nothing
 
-properListOf :: (MonadRef m, r ~ Ref m) => Object r -> (Object r -> MaybeT m a) -> MaybeT m [a]
+properListOf
+  :: (MonadMutableRef m, r ~ Ref m)
+  => Object r -> (Object r -> MaybeT m a) -> MaybeT m [a]
 properListOf x f = MaybeT (properList x) >>= traverse f
 
 string :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Character])
-string x = runMaybeT $ properListOf x \case
-  Character c -> pure c
-  _ -> empty
+string = runMaybeT . go where
+  go = \case
+    Symbol Nil -> pure []
+    Pair ref -> readRef ref >>= \case
+      MkPair (Character c, x) -> (c:) <$> go x
+      _ -> empty
+    _ -> empty
 
 quote :: (MonadRef m, r ~ Ref m) => Object r -> m (Object r)
 quote = ("quote" .|)
 
 pattern Sym       :: Char -> String -> Object r
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
-
-quoted :: (MonadRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (Object r))
-quoted r = runMaybeT $ MaybeT (properList1 r) >>= \case
-  Sym 'q' "uote" :| [x] -> pure x
-  _ -> empty
 
 class Repr r x where
   repr :: (MonadRef m, r ~ Ref m) => x -> m String
@@ -153,7 +190,7 @@ instance Repr r' (r' (Pair r')) where
       <|> maybeQuoted' "~comma" ","
       <|> maybeQuoted' "~splice" ",@"
       <|> maybeNumber
-    go ref <&> \s -> maybe ("(" <> s <> ")") id mb
+    go "(" ")" ref <&> \s -> maybe s id mb
     where
       maybeNumber :: MaybeT m String
       maybeNumber = number (Pair ref) <&> showNumber
@@ -167,23 +204,26 @@ instance Repr r' (r' (Pair r')) where
         <> show (numerator r) <> if denominator r == 1 then "" else ("/" <> show (denominator r))
 
       maybeQuoted :: String -> String -> MaybeT m String
-      maybeQuoted name p = MaybeT (properList1 ref) >>= \case
-        Sym n ame :| [x] | n:ame == name -> repr x <&> (p <>)
+      maybeQuoted name p = readRef ref >>= \case
+        MkPair (Sym n ame, Pair rest) | n:ame == name ->
+           readRef rest >>= \case
+             MkPair (x, Symbol Nil) -> repr x <&> (p <>)
+             _ -> empty
         _ -> empty
       maybeQuoted' name p = readRef ref >>= \case
         MkPair (Sym n ame, x) | n:ame == name -> repr x <&> (p <>)
         _ -> empty
       escaped :: Character -> String
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
-      go :: (r (Pair r)) -> m String
-      go ref' = do
-        MkPair (car, cdr) <- readRef ref'
-        car' <- repr car
-        (car' <>) <$> mcase2 (number, id) cdr \case
-          Case1of2 n -> pure (" . " <> showNumber n)
-          Case2of2 (Symbol Nil) -> pure ""
-          Case2of2 (Pair p') -> (" " <>) <$> go p'
-          Case2of2 x -> (" . " <>) <$> repr x
+      go :: String -> String -> r (Pair r) -> m String
+      go pre post ref' = readRef ref' >>= \case
+        Number n -> pure $ showNumber n
+        MkPair (car, cdr) -> repr car >>= \car' ->
+          (\s -> pre <> s <> post) . (car' <>) <$> mcase2 (number, id) cdr \case
+            Case1of2 n -> pure (" . " <> showNumber n)
+            Case2of2 (Symbol Nil) -> pure ""
+            Case2of2 (Pair p') -> (" " <>) <$> go "" "" p'
+            Case2of2 x -> (" . " <>) <$> repr x
 
 instance Repr m Character where
   repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
@@ -205,21 +245,39 @@ data Case2 a b
 pattern Nil :: Symbol
 pattern Nil = MkSymbol ('n' :| "il")
 
-number :: forall m r. (MonadRef m, r ~ Ref m) => Object r -> MaybeT m (Complex Rational)
-number = MaybeT . properList >=> \case
-  [Sym 'l' "it", Sym 'n' "um", real, imag] ->
-    bisequence (ratio real, ratio imag) <&> uncurry (:+)
+number :: forall m r. (MonadRef m, r ~ Ref m) => Object r -> MaybeT m Number
+number = \case
+  Pair ref -> readRef ref >>= \case
+    Number n -> pure n
+    MkPair (Sym 'l' "it", Pair a) -> readRef a >>= \case
+      MkPair (Sym 'n' "um", Pair b) -> readRef b >>= \case
+        MkPair (real, Pair c) -> readRef c >>= \case
+          MkPair (imag, Symbol Nil) ->
+            bisequence (ratio real, ratio imag) <&> uncurry (:+)
+          _ -> empty
+        _ -> empty
+      _ -> empty
+    _ -> empty
   _ -> empty
   where
   ratio :: Object r -> MaybeT m Rational
-  ratio mr = MaybeT (properList mr) >>= \case
-    [sign -> Just s, num, denom] -> bisequence (integer num, integer denom) <&> \(n, d) ->
-      (s * n) % d
+  ratio = \case
+    Pair a -> readRef a >>= \case
+      MkPair (sign -> Just s, Pair b) -> readRef b >>= \case
+        MkPair (num, Pair c) -> readRef c >>= \case
+          MkPair (denom, Symbol Nil) ->
+            bisequence (integer num, integer denom) <&> \(n, d) -> (s * n) % d
+          _ -> empty
+        _ -> empty
+      _ -> empty
     _ -> empty
   integer :: Object r -> MaybeT m Integer
   -- @incomplete: this doesn't work outside the Int range
-  integer = fmap (toInteger . length) . flip properListOf \case
-    Sym 't' "" -> pure ()
+  integer = \case
+    Symbol Nil -> pure 0
+    Pair ref -> readRef ref >>= \case
+      MkPair (Sym 't' "", x) -> (1+) <$> integer x
+      _ -> empty
     _ -> empty
   sign = \case
     Sym '+' "" -> Just 1
