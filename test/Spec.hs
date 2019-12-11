@@ -314,6 +314,14 @@ spec = do
       "(udrop '(a b) '(1 2 3 4 5))" `is` "(3 4 5)"
       "(map idfn '(a b c))" `is` "(a b c)"
       "((is 'a) 'a)" `is` "t"
+      replTest $ []
+        >> "(def foo () snerg)"
+        > "..."
+        >> "(dyn snerg 'a (foo))"
+        > "a"
+        >> "(let snerg 'a (foo))"
+        > "<error>"
+      "(list 'a 'b)" `is` "(a b)"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
