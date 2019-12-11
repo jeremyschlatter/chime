@@ -34,12 +34,13 @@ data EvalState = EvalState
  , _scope :: NonEmpty Environment
  , _locs :: [()]
  , _dyns :: Environment
+ , _debug :: [String]
  , _vmark :: IORef (Pair IORef)
  }
 $(makeLenses ''EvalState)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
-emptyState = EvalState [] (pure []) [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
+emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')) $
@@ -230,12 +231,18 @@ specialForms = (\f -> (formName f, f)) <$>
       ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
 
   -- numbers
-  , numFn '+' "" $ foldr numAdd (0 :+ 0)
-  , numFn '-' "" \case
+  , numFnN '+' "" $ foldr numAdd (0 :+ 0)
+  , numFnN '-' "" \case
       [] -> (0 :+ 0)
       [a] -> (0 :+ 0) `numSub` a
       a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
-  , numFn '*' "" $ foldr numMul (1 :+ 0)
+  , numFnN '*' "" $ foldr numMul (1 :+ 0)
+  , numFn1 'o' "dd" $ \case
+      (n :+ 0) -> denominator n == 1 && odd (numerator n)
+      _ -> False
+  , numFn1 'e' "ven" $ \case
+      (n :+ 0) -> denominator n == 1 && even (numerator n)
+      _ -> False
   ]
 
 numAdd :: Number -> Number -> Number
@@ -248,11 +255,16 @@ numMul :: Number -> Number -> Number
 numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
 
 -- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
-numFn :: (ToObject EvalMonad IORef r) => Char -> String -> ([Number] -> r) -> SpecialForm
-numFn c s f = FormN (c:s) $ (traverse (evaluate >=> runMaybeT . number)) >=> maybe
+numFnN :: (ToObject EvalMonad IORef r) => Char -> String -> ([Number] -> r) -> SpecialForm
+numFnN c s f = FormN (c:s) $ (traverse (evaluate >=> runMaybeT . number)) >=> maybe
   (throwError "non-numbers were passed to an optimized numeric function")
   (toObject . f)
   . sequence
+
+numFn1 :: (ToObject EvalMonad IORef r) => Char -> String -> (Number -> r) -> SpecialForm
+numFn1 c s f = Form1 (c:s) $ (evaluate >=> runMaybeT . number) >=> maybe
+  (throwError "non-number was passed to an optimized numeric function")
+  (toObject . f)
 
 -- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
 (~~) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
@@ -343,39 +355,46 @@ toOptionalVar p = properList p <&> \case
   Just [Sym 'o' "", x, y] -> Just (x, y)
   _ -> Nothing
 
+toTypeCheck :: Object IORef -> MaybeT EvalMonad (Object IORef, Object IORef)
+toTypeCheck x = MaybeT (properList x) >>= \case
+  [Sym 't' "", v, f] -> pure (v, f)
+  _ -> empty
+
 destructure :: Object IORef -> Object IORef -> EvalMonad Environment
 destructure = go where
-  go paramTree arg = runMaybeT (toVariable paramTree) >>= \case
-    Just (Right Nil) -> case arg of
+  go paramTree arg = mcase3 (toVariable, toTypeCheck, id) paramTree \case
+    Case1of3 (Right Nil) -> case arg of
       Symbol Nil -> pure []
       _ -> throwError "Too many arguments in function call"
-    Just v -> pure [(v, arg)]
-    _ -> case paramTree of
-      -- @incomplete: Show more information about the function
-      Character _ -> throwError $ "Invalid function definition. The parameter definition must "
-        <> "consist entirely of variables, but this one contained a character."
-      Stream -> throwError $ "Invalid function definition. The parameter definition must "
-        <> "consist entirely of variables, but this one contained a stream."
-      Symbol _ -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
-      -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
-      WhereResult x -> go x arg
-      Pair pRef ->
-        let go' (pf1, a1) (pf2, a2) = (<>) <$> go pf1 a1 <*> go pf2 a2
-        in readPair pRef >>= \(p1, p2) ->
-          bimapM toOptionalVar toOptionalVar (p1, p2) >>= \(o1, o2) ->
-            case arg of
-              Pair aRef -> do
-                let toVar v = maybe v fst
-                (a1, a2) <- readPair aRef
-                go' (toVar p1 o1, a1) (toVar p2 o2, a2)
-              x -> case (o1, o2) of
-                (Nothing, Nothing) -> throwError "Too few arguments in function call"
-                (Nothing, Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (p1, x) (v2, e2)
-                -- @consider: is this behavior correct? these cases feel weird
-                -- ((fn ((o x) . y) t))
-                (Just (v1, d1), Nothing) -> evaluate d1 >>= \e1 -> go' (v1, e1) (p2, x)
-                -- ((fn ((o x) . (o y)) t))
-                (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (v1, x) (v2, e2)
+    Case1of3 v -> pure [(v, arg)]
+    Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
+      Symbol Nil -> throwError "typecheck failure"
+      _ -> go v arg
+    -- @incomplete: Show more information about the function
+    Case3of3 (Character _) -> throwError $ "Invalid function definition. The parameter definition must "
+      <> "consist entirely of variables, but this one contained a character."
+    Case3of3 Stream -> throwError $ "Invalid function definition. The parameter definition must "
+      <> "consist entirely of variables, but this one contained a stream."
+    Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
+    -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
+    Case3of3 (WhereResult x) -> go x arg
+    Case3of3 (Pair pRef) ->
+      let go' (pf1, a1) (pf2, a2) = (<>) <$> go pf1 a1 <*> go pf2 a2
+      in readPair pRef >>= \(p1, p2) ->
+        bisequence (toOptionalVar p1, toOptionalVar p2) >>= \(o1, o2) ->
+          case arg of
+            Pair aRef -> do
+              let toVar v = maybe v fst
+              (a1, a2) <- readPair aRef
+              go' (toVar p1 o1, a1) (toVar p2 o2, a2)
+            x -> case (o1, o2) of
+              (Nothing, Nothing) -> throwError $ "Too few arguments in function call"
+              (Nothing, Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (p1, x) (v2, e2)
+              -- @consider: is this behavior correct? these cases feel weird
+              -- ((fn ((o x) . y) t))
+              (Just (v1, d1), Nothing) -> evaluate d1 >>= \e1 -> go' (v1, e1) (p2, x)
+              -- ((fn ((o x) . (o y)) t))
+              (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (v1, x) (v2, e2)
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
@@ -385,7 +404,7 @@ with l m e = push *> m <* pop where
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate expr = case expr of
+evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
   -- characters
   c@(Character _) -> pure c
 

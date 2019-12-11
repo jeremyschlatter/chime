@@ -174,9 +174,8 @@ spec = do
       > "a"
       >> "`(x ,x y)"
       > "(x a y)"
-      -- @incomplete: uncomment when numbers are working
-      -- >> `(x ,x y ,(+ 1 2))
-      -- > "(x a y 3)"
+      >> "`(x ,x y ,(+ 1 2))"
+      > "(x a y 3)"
       >> "(set y '(c d))"
       > "(c d)"
       >> "`(a b ,@y e f)"
@@ -296,8 +295,7 @@ spec = do
       "(with (x 'a  \
       \       y 'b) \
       \  (cons x y))" `is` "(a . b)"
-      -- @incomplete: uncomment when odd is implemented
-      -- "(keep odd '(1 2 3 4 5))" `is` "(1 3 5)"
+      "(keep odd '(1 2 3 4 5))" `is` "(1 3 5)"
       "(rem \\a \"abracadabra\")" `is` "\"brcdbr\""
       "(rem 4 '(5 3 1 2 4) >=)" `is` "(3 1 2)"
       replTest $ []
@@ -316,6 +314,18 @@ spec = do
       "(udrop '(a b) '(1 2 3 4 5))" `is` "(3 4 5)"
       "(map idfn '(a b c))" `is` "(a b c)"
       "((is 'a) 'a)" `is` "t"
+
+      replTest $ []
+        >> "(def consa ((t xs pair)) (cons 'a xs))"
+        > "..."
+        >> "(consa 'z)"
+        > "<error>"
+        >> "(def foo ((o (t (x . y) [caris _ 'a]) '(a . b))) x)"
+        > "..."
+        >> "(foo '(b b))"
+        > "<error>"
+        >> "(foo)"
+        > "a"
 
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"
@@ -355,11 +365,17 @@ parseThenPrintShouldBe a b =
 failure :: String -> IO a
 failure = fmap undefined . expectationFailure
 
+stackTrace :: EvalState -> String
+stackTrace =
+  (\s -> if s == "" then "<no trace recorded>" else s)
+  . intercalate "\n"
+  . _debug
+
 evalIn :: String -> EvalState -> IO (Object IORef)
 evalIn s state =
-   readThenRunEval "test case" s state >>= \(x, _) ->
+   readThenRunEval "test case" s state >>= \(x, postState) ->
      either
-       (\e -> failure $ s <> ": " <> e)
+       (\e -> failure $ s <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
        pure
        x
 

@@ -97,6 +97,10 @@ instance ToObject m r [m (Object r)] where
 -- @performance: numbers have an obvious performance problem to solve
 instance ToObject m r (Complex Rational) where
   toObject n = fmap Pair $ newRef $ Number n
+instance ToObject m r Bool where
+  toObject = pure . \case
+    True -> Sym 't' ""
+    False -> Symbol Nil
 
 collapseNumber
   :: forall m r. (MonadRef m, r ~ Ref m)
@@ -238,9 +242,20 @@ instance Repr m (Object m) where
 mcase2 :: Monad m => (x -> MaybeT m a, x -> b) -> x -> (Case2 a b -> m r) -> m r
 mcase2 (a, b) x r = (runMaybeT (Case1of2 <$> a x)) >>= r . maybe (Case2of2 (b x)) id
 
+mcase3 :: Monad m => (x -> MaybeT m a, x -> MaybeT m b, x -> c) -> x -> (Case3 a b c -> m r) -> m r
+mcase3 (a, b, c) x r = flip bind r
+  (runMaybeT (a x) >>= flip maybe (pure . Case1of3)
+    (runMaybeT (b x) >>= flip maybe (pure . Case2of3)
+      (pure $ Case3of3 $ c x)))
+
 data Case2 a b
   = Case1of2 a
   | Case2of2 b
+
+data Case3 a b c
+  = Case1of3 a
+  | Case2of3 b
+  | Case3of3 c
 
 pattern Nil :: Symbol
 pattern Nil = MkSymbol ('n' :| "il")
