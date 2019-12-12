@@ -2,6 +2,7 @@ module Main where
 
 import BasePrelude hiding ((>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
+import RawStringsQQ
 import Test.HUnit.Base
 import Test.Hspec
 
@@ -61,14 +62,14 @@ spec = do
       "apply" `is` "apply"
 
       ("chars" `isLike` flip properListOf \case
-         Pair r -> readPair r >>= \case
+         Pair ref -> readPair ref >>= \case
            (Character _, s) -> string s
            _ -> empty
          _ -> empty
        ) "a list of pairs of (<character> . <binary representation>)"
 
       let varValList = flip properListOf \case
-                          Pair r -> readPair r <&> \case
+                          Pair ref -> readPair ref <&> \case
                             (Symbol _, _) -> Just ()
                             _ -> Nothing
                           _ -> empty
@@ -322,6 +323,21 @@ spec = do
         >> "(let snerg 'a (foo))"
         > "<error>"
       "(list 'a 'b)" `is` "(a b)"
+      replTest $ []
+        >> [r| (list 'a (ccc (fn (c)
+                               (set cont c)
+                               'b)))
+           |]
+        > "(a b)"
+        >> "(cont 'z)"
+        > "(a z)"
+        >> "(cont 'w)"
+        > "(a w)"
+      [r| (ccc (fn (c)
+                 (dyn abort c
+                   (do (abort 'a)
+                       (car 'b)))))
+      |] `is` "a"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"

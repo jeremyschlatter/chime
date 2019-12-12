@@ -2,11 +2,53 @@
 module Data where
 
 import BasePrelude
-import Control.Monad.Trans.Class
+import Control.Lens.Combinators (makeLenses)
+import Control.Monad.Cont
+import Control.Monad.Except
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.State hiding (get, put)
 import Data.Bitraversable
 
 import Common
+
+-- -----------------------------------------------------------------------
+
+type Number = Complex Rational
+newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
+newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
+data Pair r
+  = MkPair (Object r, Object r)
+  | Number Number
+  | Continuation (Object IORef -> EvalMonad (Object IORef))
+
+data Object r
+  = Symbol Symbol
+  | Pair (r (Pair r))
+  | Character Character
+  | Stream
+  | WhereResult (Object r)
+
+type Error = String
+
+type Environment = [(Variable, (Object IORef))]
+
+type Variable = Either (IORef (Pair IORef)) Symbol
+
+type EvalMonad = ExceptT Error (ContT (Either Error (Object IORef)) (StateT EvalState IO))
+
+data EvalState = EvalState
+ { _globe :: Environment
+ , _scope :: NonEmpty Environment
+ , _locs :: [()]
+ , _dyns :: Environment
+ , _debug :: [String]
+ , _vmark :: IORef (Pair IORef)
+ }
+$(makeLenses ''EvalState)
+
+emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
+emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
+
 
 -- -----------------------------------------------------------------------
 -- The read-only interface to mutable refs
@@ -58,20 +100,12 @@ readPair x = readRef x >>= \case
   MkPair p -> pure p
   -- Collapse the optimized representation! :(
   Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
-
-type Variable = Either (IORef (Pair IORef)) Symbol
+  Continuation _ -> pure (Symbol Nil, Symbol Nil)
 
 instance Repr r (Either (r (Pair r)) Symbol) where
   repr = either repr repr
 instance ToObject m r (Either (r (Pair r)) Symbol) where
   toObject = pure . either Pair Symbol
-
-data Object r
-  = Symbol Symbol
-  | Pair (r (Pair r))
-  | Character Character
-  | Stream
-  | WhereResult (Object r)
 
 o :: (MonadRef m, r ~ Ref m, ToObject m r x) => x -> m (Object r)
 o = toObject
@@ -134,6 +168,7 @@ refSwap = \case
   Stream -> pure $ pure Stream
   Pair r -> readRef r >>= \case
     Number n -> pure $ fmap Pair $ newRef $ Number n
+    Continuation c -> pure $ fmap Pair $ newRef $ Continuation c
     MkPair (car, cdr) -> do
       car' <- refSwap car
       cdr' <- refSwap cdr
@@ -141,14 +176,6 @@ refSwap = \case
         car'' <- car'
         cdr'' <- cdr'
         car'' .* cdr''
-
-type Number = Complex Rational
-
-newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
-newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
-data Pair r
-  = MkPair (Object r, Object r)
-  | Number Number
 
 properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
 properList1 ref = readPair ref >>=
@@ -222,6 +249,7 @@ instance Repr r' (r' (Pair r')) where
       go :: String -> String -> r (Pair r) -> m String
       go pre post ref' = readRef ref' >>= \case
         Number n -> pure $ showNumber n
+        Continuation _ -> pure "<continuation>"
         MkPair (car, cdr) -> repr car >>= \car' ->
           (\s -> pre <> s <> post) . (car' <>) <$> mcase2 (number, id) cdr \case
             Case1of2 n -> pure (" . " <> showNumber n)

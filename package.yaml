@@ -24,6 +24,7 @@ default-extensions:
 - MultiParamTypeClasses
 - NoImplicitPrelude
 - PatternSynonyms
+- QuasiQuotes
 - RankNTypes
 - ScopedTypeVariables
 - TemplateHaskell
@@ -72,4 +73,5 @@ tests:
     - bel
     - hspec
     - HUnit
+    - template-haskell
     - transformers

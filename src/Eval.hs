@@ -4,9 +4,9 @@ module Eval where
 import BasePrelude hiding (evaluate, getEnv, head, tail)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
+import Control.Monad.Cont hiding (cont)
 import Control.Monad.Except
 import Control.Monad.State.Class (MonadState, get, put)
-import Control.Monad.Trans.Except (except)
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State hiding (get, put)
 import Data.Bitraversable
@@ -22,25 +22,6 @@ import Text.Megaparsec.Error
 import Common
 import Data
 import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
-
-type Error = String
-
-type Environment = [(Variable, (Object IORef))]
-
-type EvalMonad = ExceptT Error (StateT EvalState IO)
-
-data EvalState = EvalState
- { _globe :: Environment
- , _scope :: NonEmpty Environment
- , _locs :: [()]
- , _dyns :: Environment
- , _debug :: [String]
- , _vmark :: IORef (Pair IORef)
- }
-$(makeLenses ''EvalState)
-
-emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
-emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')) $
@@ -120,6 +101,7 @@ data Operator
   | SpecialForm SpecialForm
   | Macro Closure
   | Closure Closure
+  | Cont (Object IORef -> EvalMonad (Object IORef))
 
 data Closure = MkClosure Environment (Object IORef) (Object IORef)
 
@@ -194,6 +176,9 @@ specialForms = (\f -> (formName f, f)) <$>
       preX <- get
       catchError (void $ evaluate x) $ const $ put preX
       evaluate y
+  , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
+      c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
+      listToObject [pure f, pure c] >>= evaluate
   , FormN "set" let
       go r = \case
         [] -> pure r
@@ -341,13 +326,21 @@ primitives = (\p -> (primName p, p)) <$>
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
 
+continuation :: Object IORef -> MaybeT EvalMonad (Object IORef -> EvalMonad (Object IORef))
+continuation = \case
+  Pair ref -> readRef ref >>= \case
+    Continuation c -> pure c
+    _ -> empty
+  _ -> empty
+
 operator :: Object IORef -> EvalMonad (Maybe Operator)
 operator = \case
   (specialForm -> Just f) -> pure $ Just $ SpecialForm f
-  x -> evaluate x >>= \x' -> properList x' >>= \case
-    (Just (primitive -> Just f)) -> pure $ Just $ Primitive f
-    (Just l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
-    Nothing -> pure Nothing
+  x -> evaluate x >>= \x' -> bisequence (runMaybeT (continuation x'), properList x') >>= \case
+    (Just c, _) -> pure $ Just $ Cont c
+    (_, Just (primitive -> Just f)) -> pure $ Just $ Primitive f
+    (_, Just l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
+    _ -> pure Nothing
 
 toOptionalVar :: Object IORef -> EvalMonad (Maybe (Object IORef, Object IORef))
 toOptionalVar p = properList p <&> \case
@@ -420,15 +413,27 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
 
   -- pairs
   Pair ref -> readPair ref >>= \(_, argTree) ->
-    (,,) <$> runMaybeT (toVariable expr) <*> string expr <*> properList1 ref >>= \case
+    (,,,)
+      <$> runMaybeT (continuation expr)
+      <*> runMaybeT (toVariable expr)
+      <*> string expr
+      <*> properList1 ref >>= \case
+
+      -- continuations
+      (Just _, _, _, _) -> pure expr
+
       -- vmark references
-      (Just v, _, _) -> envLookup v
+      (_, Just v, _, _) -> envLookup v
 
       -- strings
-      (_, Just _, _) -> pure expr
+      (_, _, Just _, _) -> pure expr
 
       -- operators with arguments
-      (_, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
+      (_, _, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
+        Cont c -> case args of
+          [] -> throwError "tried to call a continuation with no arguments"
+          [x] -> evaluate x >>= c
+          _ -> throwError "tried to call a continuation with too many arguments"
         Primitive p -> case p of
           Prim1 nm f -> case args of
             [] -> call (Symbol Nil)
@@ -487,25 +492,25 @@ fromBool = \case
   True -> Sym 't' ""
   False -> Symbol Nil
 
-runEval :: EvalMonad a -> EvalState -> IO (Either Error a, EvalState)
-runEval = runStateT . runExceptT
+runEval :: EvalMonad (Object IORef) -> EvalState -> IO (Either Error (Object IORef), EvalState)
+runEval = runStateT . flip runContT pure . runExceptT
 
 readThenEval :: FilePath -> String -> EvalMonad (Object IORef)
 readThenEval path =
   (>>= evaluate) .
-  either (except . Left . errorBundlePretty) id .
+  either (throwError . errorBundlePretty) id .
   parse path
 
 readThenRunEval :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
 readThenRunEval p c s = flip runEval s $ readThenEval p c
 
 builtinsIO :: IO EvalState
-builtinsIO = snd <$> (runEval builtins =<< emptyState)
+builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
 
 bel :: FilePath -> IO (Either Error EvalState)
 bel f = builtinsIO >>= \b -> readFile f >>= \s0 -> do
   prog <- either (die . errorBundlePretty) id (parseMany f s0)
-  (x, s) <- runEval (traverse_ evaluate prog) b
+  (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   pure (x $> s)
 
 getOrCreateHistoryFile :: IO FilePath
@@ -538,8 +543,8 @@ repl = do
                     then go (input <> "\n") s
                     else outputStrLn (red (errorBundlePretty err)) *> go "" s
         Right obj -> do
-          (x, s') <- lift $ runEval (obj >>= evaluate >>= repr) s
-          outputStrLn $ either red id x
+          (x, s') <- lift $ runEval (obj >>= evaluate) s
+          either (pure . red) repr x >>= outputStrLn
           newline
           go "" $ either (const s) (const s') x
   newline = outputStrLn "" -- empty line between inputs
