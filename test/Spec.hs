@@ -353,6 +353,9 @@ spec = do
              'oops
              x)
       |] `is` "a"
+      "(onerr 'oops (car 'a))" `is` "oops"
+      "(safe (car '(a b)))" `is` "a"
+      "(safe (car 'a))" `is` "nil"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
@@ -386,6 +389,7 @@ spec = do
         > "a" --   <-- the sets should not have evaluated, so x should still be a
       "(and t t nil t)" `is` "nil"
       "(~atom 'a)" `is` "nil"
+      "(onerr 'oops (car '(a b)))" `is` "a"
 
 
 -- ----------------------------------------------------------------------------
