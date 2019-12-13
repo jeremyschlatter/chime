@@ -356,6 +356,10 @@ spec = do
       "(onerr 'oops (car 'a))" `is` "oops"
       "(safe (car '(a b)))" `is` "a"
       "(safe (car 'a))" `is` "nil"
+      -- Spec bug: This example is incorrect. There is a corrected version below.
+      -- "(map literal (list nil \"foo\" car))" `is` "(t t t)"
+      "(map variable (list 'x (uvar) t))" `is` "(t t nil)"
+      "((isa 'clo) map)" `is` "t"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
@@ -390,6 +394,7 @@ spec = do
       "(and t t nil t)" `is` "nil"
       "(~atom 'a)" `is` "nil"
       "(onerr 'oops (car '(a b)))" `is` "a"
+      "(map no:no:literal (list nil \"foo\" car))" `is` "(t t t)"
 
 
 -- ----------------------------------------------------------------------------
