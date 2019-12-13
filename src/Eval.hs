@@ -5,7 +5,8 @@ import BasePrelude hiding (evaluate, getEnv, head, tail)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
-import Control.Monad.Except
+import Control.Monad.Except hiding (throwError)
+import qualified Control.Monad.Except as E
 import Control.Monad.State.Class (MonadState, get, put)
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State hiding (get, put)
@@ -50,6 +51,7 @@ builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')
     , "xdr"
     , "sym"
     , "nom"
+    , "err"
     ]
   where
     -- NOTE: sym and sym' are unsafe!
@@ -61,8 +63,12 @@ builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')
       [] -> interpreterBug "called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
-envLookup :: Variable -> EvalMonad (Object IORef)
-envLookup s = do
+throwError :: String -> EvalMonad (Object IORef)
+throwError s = listToObject [
+  o "err", listToObject (pure . Character . MkCharacter <$> s)] >>= evaluate
+
+vref :: Variable -> EvalMonad (Object IORef)
+vref s = do
   dyns' <- use dyns
   scope' <- use $ scope._Wrapped._1
   globe' <- use globe
@@ -310,6 +316,11 @@ primitives = (\p -> (primName p, p)) <$>
       Sym n ame -> listToObject (toObject <$> n:ame)
       x -> repr x >>= \rep -> throwError $ "nom is only defined on symbols. "
         <> rep <> " is not a symbol."
+  -- @incomplete: this throws away info when the argument is not a string
+  -- @consider: what if another error is signaled during evaluation of the argument?
+  , Prim1 "err" $ string >=> E.throwError . \case
+      Nothing -> "<error>"
+      Just s -> unCharacter <$> s
   ] where
       carAndCdr nm fn w = Prim1 nm \case
         Symbol Nil -> pure $ Symbol Nil
@@ -353,26 +364,29 @@ toTypeCheck x = MaybeT (properList x) >>= \case
   [Sym 't' "", v, f] -> pure (v, f)
   _ -> empty
 
-destructure :: Object IORef -> Object IORef -> EvalMonad Environment
+destructure :: Object IORef -> Object IORef -> EvalMonad (Either (Object IORef) Environment)
 destructure = go where
   go paramTree arg = mcase3 (toVariable, toTypeCheck, id) paramTree \case
     Case1of3 (Right Nil) -> case arg of
-      Symbol Nil -> pure []
-      _ -> throwError "Too many arguments in function call"
-    Case1of3 v -> pure [(v, arg)]
+      Symbol Nil -> pure $ Right []
+      _ -> Left <$> throwError "Too many arguments in function call"
+    Case1of3 v -> pure $ Right [(v, arg)]
     Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
-      Symbol Nil -> throwError "typecheck failure"
+      Symbol Nil -> Left <$> throwError "typecheck failure"
       _ -> go v arg
     -- @incomplete: Show more information about the function
-    Case3of3 (Character _) -> throwError $ "Invalid function definition. The parameter definition must "
+    Case3of3 (Character _) -> fmap Left $ throwError $
+      "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a character."
-    Case3of3 Stream -> throwError $ "Invalid function definition. The parameter definition must "
+    Case3of3 Stream -> fmap Left $ throwError $
+      "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a stream."
     Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
     -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
     Case3of3 (WhereResult x) -> go x arg
     Case3of3 (Pair pRef) ->
-      let go' (pf1, a1) (pf2, a2) = (<>) <$> go pf1 a1 <*> go pf2 a2
+      -- let go' (pf1, a1) (pf2, a2) = bisequence (go pf1 a1, go pf2 a2) <&> uncurry (liftA2 (<>))
+      let go' (pf1, a1) (pf2, a2) = (liftA2 (<>)) <$> go pf1 a1 <*> go pf2 a2
       in readPair pRef >>= \(p1, p2) ->
         bisequence (toOptionalVar p1, toOptionalVar p2) >>= \(o1, o2) ->
           case arg of
@@ -381,7 +395,7 @@ destructure = go where
               (a1, a2) <- readPair aRef
               go' (toVar p1 o1, a1) (toVar p2 o2, a2)
             x -> case (o1, o2) of
-              (Nothing, Nothing) -> throwError $ "Too few arguments in function call"
+              (Nothing, Nothing) -> Left <$> throwError "Too few arguments in function call"
               (Nothing, Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (p1, x) (v2, e2)
               -- @consider: is this behavior correct? these cases feel weird
               -- ((fn ((o x) . y) t))
@@ -408,7 +422,7 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv $ scope._Wrapped._1
-    _ -> envLookup (Right s)
+    _ -> vref (Right s)
     where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
 
   -- pairs
@@ -423,7 +437,7 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
       (Just _, _, _, _) -> pure expr
 
       -- vmark references
-      (_, Just v, _, _) -> envLookup v
+      (_, Just v, _, _) -> vref v
 
       -- strings
       (_, _, Just _, _) -> pure expr
@@ -457,11 +471,13 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
           FormN _ f -> f args
           Lit -> pure expr
         Closure (MkClosure env params body) -> do
-          bound <- (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args
-          withScope (bound <> env) (evaluate body)
+          (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
+            either pure
+              (\bound -> withScope (bound <> env) (evaluate body))
         Macro (MkClosure env params body) -> do
-          bound <- destructure params argTree
-          (withScope (bound <> env) (evaluate body)) >>= evaluate
+          destructure params argTree >>=
+            either pure
+              (\bound -> (withScope (bound <> env) (evaluate body)) >>= evaluate)
 
       _ -> giveUp
 
@@ -477,12 +493,12 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
     giveUp = repr expr >>= \rep ->
       throwError $ "I don't know how to evaluate this yet: " <> rep
 
-excessPrimParams :: String -> [a] -> Int -> EvalMonad b
+excessPrimParams :: String -> [a] -> Int -> EvalMonad (Object IORef)
 excessPrimParams nm args n =
   throwError $ "Too many parameters in call to primitive " <> nm
     <> ". Got " <> show (length args) <> ", want at most " <> show n <> "."
 
-wrongParamCount :: String -> [a] -> Int -> EvalMonad b
+wrongParamCount :: String -> [a] -> Int -> EvalMonad (Object IORef)
 wrongParamCount nm args n =
   throwError $ "Wrong number of parameters in special form " <> nm
     <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."

@@ -338,6 +338,11 @@ spec = do
                    (do (abort 'a)
                        (car 'b)))))
       |] `is` "a"
+      [r|
+      (ccc (fn (c)
+             (dyn err (fn (x) (c 'hello))
+               (car 'b))))
+      |] `is` "hello"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
