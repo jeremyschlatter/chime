@@ -343,6 +343,16 @@ spec = do
              (dyn err (fn (x) (c 'hello))
                (car 'b))))
       |] `is` "hello"
+      [r|
+      (eif x (car 'a)
+             'oops
+             x)
+      |] `is` "oops"
+      [r|
+      (eif x (car '(a b))
+             'oops
+             x)
+      |] `is` "a"
 
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
