@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude hiding (evaluate, getEnv, head, tail)
+import BasePrelude hiding (evaluate, getEnv, head, tail, mask)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
@@ -18,6 +18,7 @@ import Data.Text.Encoding
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
+import System.IO
 import Text.Megaparsec.Error
 
 import Common
@@ -51,6 +52,11 @@ builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')
     , "xdr"
     , "sym"
     , "nom"
+    , "wrb"
+    , "rdb"
+    , "ops"
+    , "cls"
+    , "stat"
     , "err"
     ]
   where
@@ -292,7 +298,7 @@ primitives = (\p -> (primName p, p)) <$>
   [ Prim2 "id" $ pure . fromBool .: curry \case
       (Symbol a, Symbol b) -> a == b
       (Character a, Character b) -> a == b
-      (Stream, Stream) -> False -- @incomplete: what should this be?
+      (Stream _, Stream _) -> False -- @incomplete: what should this be?
       (Pair ra, Pair rb) -> ra == rb
       _ -> False
   , Prim2 "join" (.*)
@@ -303,7 +309,7 @@ primitives = (\p -> (primName p, p)) <$>
         Symbol _ -> 's' :| "ymbol"
         Character _ -> 'c' :| "har"
         Pair _ -> 'p' :| "air"
-        Stream -> 's' :| "tream"
+        Stream _ -> 's' :| "tream"
         WhereResult x -> go x
       in pure . Symbol . MkSymbol . go
   , xarAndXdr "xar" first
@@ -316,6 +322,48 @@ primitives = (\p -> (primName p, p)) <$>
       Sym n ame -> listToObject (toObject <$> n:ame)
       x -> repr x >>= \rep -> throwError $ "nom is only defined on symbols. "
         <> rep <> " is not a symbol."
+  , Prim2 "wrb" \b' s' -> do
+      let wBit = case b' of
+                   Character (MkCharacter '0') -> Just 0
+                   Character (MkCharacter '1') -> Just 0xff
+                   _ -> Nothing
+      stream <- runMaybeT @EvalMonad $ case s' of
+        Stream r -> (r,) <$> readRef r
+        Symbol Nil -> use outs >>= \r -> (r,) <$> readRef r
+        _ -> empty
+      case (wBit, stream) of
+        (Just b, Just (ref, MkStream h buf mask)) -> let
+          newBuf = buf .|. (b .&. mask)
+          newMask = rotate mask (1)
+          in Symbol Nil <$
+            if newMask == bit 0
+            then do
+              lift $ lift $ lift $ B.hPut h (B.singleton newBuf)
+              writeRef ref $ MkStream h 0 newMask
+            else
+              writeRef ref $ MkStream h newBuf newMask
+        _ -> throwError "invalid arguments to wrb"
+  , Prim2 "ops" \x y -> string x >>= \x' -> case (x', y) of
+      (
+        Just path,
+        Symbol (
+          (\s -> case toList $ unSymbol s of
+                    "in" -> Just ReadMode
+                    "out" -> Just WriteMode
+                    _ -> Nothing
+          ) -> Just mode)
+       ) -> lift $ lift $ lift $ openFile (unCharacter <$> path) mode >>= \h ->
+         Stream <$> newStream h
+      _ -> throwError "invalid arguments to ops"
+  , Prim1 "cls" \case
+      Stream r -> readRef r >>= \(MkStream h b m) -> lift $ lift $ lift do
+        if m == bit 0
+        then pure ()
+        -- flush any bits left in the buffer
+        else B.hPut h (B.singleton b)
+        hClose h
+        pure $ Symbol Nil
+      _ -> throwError "invalid argument to cls"
   -- @incomplete: this throws away info when the argument is not a string
   -- @consider: what if another error is signaled during evaluation of the argument?
   , Prim1 "err" $ string >=> E.throwError . \case
@@ -383,7 +431,7 @@ destructure p a' = pushScope *> go p a' <* popScope where
     Case3of3 (Character _) -> fmap Left $ throwError $
       "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a character."
-    Case3of3 Stream -> fmap Left $ throwError $
+    Case3of3 (Stream _) -> fmap Left $ throwError $
       "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a stream."
     Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
@@ -422,7 +470,7 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
   c@(Character _) -> pure c
 
   -- streams
-  s@Stream -> pure s
+  s@(Stream _) -> pure s
 
   -- symbols
   (Symbol s@(MkSymbol (toList -> s'))) -> case s' of

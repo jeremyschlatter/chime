@@ -8,6 +8,7 @@ import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State hiding (get, put)
 import Data.Bitraversable
+import System.IO
 
 import Common
 
@@ -20,12 +21,13 @@ data Pair r
   = MkPair (Object r, Object r)
   | Number Number
   | Continuation (Object IORef -> EvalMonad (Object IORef))
+data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamMask :: Word8 }
 
 data Object r
   = Symbol Symbol
   | Pair (r (Pair r))
   | Character Character
-  | Stream
+  | Stream (r Stream)
   | WhereResult (Object r)
 
 type Error = String
@@ -43,11 +45,19 @@ data EvalState = EvalState
  , _dyns :: Environment
  , _debug :: [String]
  , _vmark :: IORef (Pair IORef)
+ , _ins :: IORef Stream
+ , _outs :: IORef Stream
  }
 $(makeLenses ''EvalState)
 
+newStream :: (MonadRef m, Ref m ~ IORef) => Handle -> m (IORef Stream)
+newStream h = newRef (MkStream h 0 (bit 0))
+
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
-emptyState = EvalState [] (pure []) [] [] [] <$> newRef (MkPair (Symbol Nil, Symbol Nil))
+emptyState = EvalState [] (pure []) [] [] []
+  <$> newRef (MkPair (Symbol Nil, Symbol Nil))
+  <*> newStream stdin
+  <*> newStream stdout
 
 
 -- -----------------------------------------------------------------------
@@ -165,7 +175,7 @@ refSwap = \case
   WhereResult x -> WhereResult <$$> refSwap x
   Symbol s -> pure $ pure $ Symbol s
   Character c -> pure $ pure $ Character c
-  Stream -> pure $ pure Stream
+  Stream r -> readRef r >>= \s -> pure $ fmap Stream $ newRef s
   Pair r -> readRef r >>= \case
     Number n -> pure $ fmap Pair $ newRef $ Number n
     Continuation c -> pure $ fmap Pair $ newRef $ Continuation c
@@ -265,7 +275,7 @@ instance Repr m (Object m) where
     Symbol s -> repr s
     Pair p -> repr p
     Character c -> repr c
-    Stream -> pure "<stream>"
+    Stream _ -> pure "<stream>"
 
 mcase2 :: Monad m => (x -> MaybeT m a, x -> b) -> x -> (Case2 a b -> m r) -> m r
 mcase2 (a, b) x r = (runMaybeT (Case1of2 <$> a x)) >>= r . maybe (Case2of2 (b x)) id
