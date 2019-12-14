@@ -175,7 +175,10 @@ specialForms = (\f -> (formName f, f)) <$>
       popLoc = locs %= \case
         [] -> error "interpreter bug: should be impossible because of call to pushLoc"
         _:xs -> xs
-      in \x -> pushLoc *> evaluate x <* popLoc
+      unWhere = \case
+        WhereResult x -> pure x
+        _ -> throwError $ "called where on a value that does not come from a pair"
+      in \x -> pushLoc *> (evaluate x >>= unWhere) <* popLoc
   , Form3 "dyn" \v x y -> runMaybeT (toVariable v) >>= \case
         Just v' -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
           pushDyn evX = dyns %= ((v',evX):)
@@ -376,7 +379,7 @@ primitives = (\p -> (primName p, p)) <$>
         -- Otherwise, we return the normal value.
         Pair ra -> readPair ra >>= \tup -> use locs >>= \case
           [] -> pure $ fn tup
-          _ -> Pair ra ~| Sym @IORef w ""
+          _ -> WhereResult <$> (Pair ra ~| Sym @IORef w "")
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
