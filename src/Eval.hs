@@ -365,12 +365,17 @@ toTypeCheck x = MaybeT (properList x) >>= \case
   _ -> empty
 
 destructure :: Object IORef -> Object IORef -> EvalMonad (Either (Object IORef) Environment)
-destructure = go where
+destructure p a' = pushScope *> go p a' <* popScope where
+  pushScope = scope %= \(s:|ss) -> s:|(s:ss)
+  popScope = scope %= \case
+    _:|s:ss -> s:|ss
+    _ -> interpreterBug "failed to popScope"
+  pushVar v a = (scope %= \(s:|ss) -> ((v, a):s) :| ss) $> Right [(v, a)]
   go paramTree arg = mcase3 (toVariable, toTypeCheck, id) paramTree \case
     Case1of3 (Right Nil) -> case arg of
       Symbol Nil -> pure $ Right []
       _ -> Left <$> throwError "Too many arguments in function call"
-    Case1of3 v -> pure $ Right [(v, arg)]
+    Case1of3 v -> pushVar v arg -- pure $ Right [(v, arg)]
     Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
       Symbol Nil -> Left <$> throwError "typecheck failure"
       _ -> go v arg
@@ -401,13 +406,14 @@ destructure = go where
               -- ((fn ((o x) . y) t))
               (Just (v1, d1), Nothing) -> evaluate d1 >>= \e1 -> go' (v1, e1) (p2, x)
               -- ((fn ((o x) . (o y)) t))
-              (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (v1, x) (v2, e2)
+              (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 ->
+                go' (v1, x) (v2, e2)
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
   push = l %= (e:)
   pop = l %= \case
-    [] -> error "interpreter bug: failed to pop stack frame"
+    [] -> interpreterBug "failed to pop stack frame"
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)

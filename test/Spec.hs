@@ -361,6 +361,8 @@ spec = do
       "(map variable (list 'x (uvar) t))" `is` "(t t nil)"
       "((isa 'clo) map)" `is` "t"
 
+      "((fn (x (o y x)) y) 'a)" `is` "a"
+
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
         > "..."
