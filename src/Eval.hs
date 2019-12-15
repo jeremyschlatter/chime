@@ -26,7 +26,8 @@ import Data
 import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
 
 builtins :: EvalMonad ()
-builtins = (globe <~) $ traverse ((\(s, x) -> (s,) <$> x) . first (Right . sym')) $
+builtins = (globe <~) $ traverse
+    ((\(s, x') -> x' >>= \x -> newRef $ MkPair $ (s, x)) . first (Symbol . sym')) $
   [ ("nil", sym "nil")
   , ("o", sym "o")
   , ("apply", sym "apply")
@@ -73,23 +74,39 @@ throwError :: String -> EvalMonad (Object IORef)
 throwError s = listToObject [
   o "err", listToObject (pure . Character . MkCharacter <$> s)] >>= evaluate
 
-vref :: Variable -> EvalMonad (Object IORef)
+findMap :: (a -> Maybe b) -> [a] -> Maybe b
+findMap p = \case
+  [] -> Nothing
+  x:xs -> maybe (findMap p xs) Just (p x)
+
+envLookup :: Object IORef -> Environment -> MaybeT EvalMonad (Object IORef)
+envLookup k kvs = post $ MaybeT $ traverse doRead kvs <&> findMap \p' -> case (k, p') of
+  (Symbol a, (p, MkPair (Symbol b, v))) | a == b -> Just (p, v)
+  (Pair a, (p, MkPair (Pair b, v))) | a == b -> Just (p, v)
+  _ -> Nothing
+  where
+    doRead :: IORef (Pair IORef) -> EvalMonad (IORef (Pair IORef), Pair IORef)
+    doRead r = (r,) <$> readRef r
+    post :: MaybeT EvalMonad (IORef (Pair IORef), Object IORef) -> MaybeT EvalMonad (Object IORef)
+    post = flip bind \(p, v) -> use locs >>= \case
+      True:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
+      _ -> pure v
+
+vref :: Object IORef -> EvalMonad (Object IORef)
 vref s = do
   dyns' <- use dyns
   scope' <- use $ scope._Wrapped._1
   globe' <- use globe
-  maybe
+  runMaybeT (envLookup s dyns' <|> envLookup s scope' <|> envLookup s globe') >>= maybe
     (throwError . ("undefined variable: " <>) =<< repr s)
     pure
-    -- @incomplete: change behavior inside where
-    (lookup s dyns' <|> lookup s scope' <|> lookup s globe')
 
-toVariable :: Object IORef -> MaybeT EvalMonad Variable
+toVariable :: Object IORef -> MaybeT EvalMonad (Object IORef)
 toVariable = \case
-  Symbol s -> pure $ Right s
-  Pair r -> bisequence (readPair r, use vmark) >>= \case
+  s@(Symbol _) -> pure $ s
+  p@(Pair r) -> bisequence (readPair r, use vmark) >>= \case
     ((Pair carRef, _), v) -> case carRef == v of
-      True -> pure $ Left r
+      True -> pure p
       _ -> empty
     _ -> empty
   _ -> empty
@@ -98,7 +115,7 @@ function :: [Object IORef] -> MaybeT EvalMonad Closure
 function x = case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
     env' <- properListOf env \case
-      Pair r -> readPair r >>= \(var, val) -> (,val) <$> toVariable var
+      Pair r -> pure r
       _ -> empty
     pure $ MkClosure env' params body
   _ -> empty
@@ -140,6 +157,10 @@ specialForm = \case
   Symbol s -> lookup (toList $ unSymbol s) specialForms
   _ -> Nothing
 
+pushBinding :: MonadState s EvalMonad =>
+  ASetter s s Environment Environment -> Object IORef -> Object IORef -> EvalMonad ()
+pushBinding env var val = ((:) <$> mkPair var val) >>= (env %=)
+
 specialForms :: [(String, SpecialForm)]
 specialForms = (\f -> (formName f, f)) <$>
   [ Form1 "quote" pure
@@ -179,7 +200,7 @@ specialForms = (\f -> (formName f, f)) <$>
         _ -> pure r
   , Form3 "dyn" \v x y -> runMaybeT (toVariable v) >>= \case
         Just v' -> evaluate x >>= \evX -> pushDyn evX *> evreturn y <* popDyn where
-          pushDyn evX = dyns %= ((v',evX):)
+          pushDyn = pushBinding dyns v'
           popDyn = dyns %= \case
             [] -> error "interpreter bug: should be impossible because of call to pushDyn"
             _:xs -> xs
@@ -202,7 +223,7 @@ specialForms = (\f -> (formName f, f)) <$>
 
         var:val:rest -> runMaybeT (toVariable var) >>= \case
           -- @incomplete: re-visit this whole function for where + setting pairs
-          Just v -> evaluate val >>= \val' -> (globe %= ((v, val'):)) *> go val' rest
+          Just v -> evaluate val >>= \val' -> pushBinding globe v val' *> go val' rest
           _ -> throwError "Tried to assign to a non-variable with set"
       in go $ Symbol Nil
   -- @incomplete: this is just an approximation, since I haven't learned
@@ -419,9 +440,9 @@ destructure p a' = pushScope *> go p a' <* popScope where
   popScope = scope %= \case
     _:|s:ss -> s:|ss
     _ -> interpreterBug "failed to popScope"
-  pushVar v a = (scope %= \(s:|ss) -> ((v, a):s) :| ss) $> Right [(v, a)]
+  pushVar v a = mkPair v a >>= \b -> (scope %= \(s:|ss) -> (b:s) :| ss) $> Right [b]
   go paramTree arg = mcase3 (toVariable, toTypeCheck, id) paramTree \case
-    Case1of3 (Right Nil) -> case arg of
+    Case1of3 (Symbol Nil) -> case arg of
       Symbol Nil -> pure $ Right []
       _ -> Left <$> throwError "Too many arguments in function call"
     Case1of3 v -> pushVar v arg -- pure $ Right [(v, arg)]
@@ -475,11 +496,11 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   s@(Stream _) -> pure s
 
   -- symbols
-  (Symbol s@(MkSymbol (toList -> s'))) -> case s' of
+  (Symbol (MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
     "scope" -> getEnv $ scope._Wrapped._1
-    _ -> vref (Right s)
-    where getEnv = use >=> listToObject . (fmap (uncurry (.*)))
+    _ -> vref expr
+    where getEnv = use >=> listToObject . fmap (pure . Pair)
 
   -- pairs
   Pair ref -> readPair ref >>= \(_, argTree) ->
@@ -493,7 +514,7 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
       (Just _, _, _, _) -> pure expr
 
       -- vmark references
-      (_, Just v, _, _) -> vref v
+      (_, Just _, _, _) -> vref expr
 
       -- strings
       (_, _, Just _, _) -> pure expr

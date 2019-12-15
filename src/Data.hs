@@ -31,7 +31,7 @@ data Object r
 
 type Error = String
 
-type Environment = [(Variable, (Object IORef))]
+type Environment = [IORef (Pair IORef)]
 
 type Variable = Either (IORef (Pair IORef)) Symbol
 
@@ -118,6 +118,9 @@ instance ToObject m r (Either (r (Pair r)) Symbol) where
 
 o :: (MonadRef m, r ~ Ref m, ToObject m r x) => x -> m (Object r)
 o = toObject
+
+mkPair :: (MonadRef m, IORef ~ Ref m) => Object IORef -> Object IORef -> m (IORef (Pair IORef))
+mkPair a b = newRef $ MkPair $ (a, b)
 
 class ToObject m r x where
   toObject :: (MonadRef m, r ~ Ref m) => x -> m (Object r)

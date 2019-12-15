@@ -128,6 +128,7 @@ spec = do
       "((lit clo nil (x) (join x 'b)) 'a)" `is` "(a . b)"
       "(mac n p e)" `is` "(lit mac (lit clo nil p e))"
       "'(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
+      "(dyn x 'a (where x))" `is` "((x . a) d)"
 
   describe "multi-line repl sessions" do
 
