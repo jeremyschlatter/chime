@@ -361,6 +361,11 @@ spec = do
       -- "(map literal (list nil \"foo\" car))" `is` "(t t t)"
       "(map variable (list 'x (uvar) t))" `is` "(t t nil)"
       "((isa 'clo) map)" `is` "t"
+      [r|
+      (let x '(a b c)
+        (set (cadr x) 'z)
+        x)
+      |] `is` "(a z c)"
 
       "((fn (x (o y x)) y) 'a)" `is` "a"
 

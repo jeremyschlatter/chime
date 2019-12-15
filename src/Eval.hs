@@ -221,10 +221,16 @@ specialForms = (\f -> (formName f, f)) <$>
         -- Quietly ignore attempts to overwrite vmark.
         Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
 
-        var:val:rest -> runMaybeT (toVariable var) >>= \case
-          -- @incomplete: re-visit this whole function for where + setting pairs
-          Just v -> evaluate val >>= \val' -> pushBinding globe v val' *> go val' rest
-          _ -> throwError "Tried to assign to a non-variable with set"
+        var:val:rest -> evaluate val >>= \val' -> runMaybeT (toVariable var) >>= \case
+          Just v -> pushBinding globe v val' *> go val' rest
+          _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
+            Just
+             [ Pair ref
+             , Sym ((\case 'a' -> Just True; 'd' -> Just False; _ -> Nothing) -> Just setCar) ""
+             ] -> readPair ref >>= \(car, cdr) -> do
+                writeRef ref $ MkPair $ bool (car, val') (val', cdr) setCar
+                go val' rest
+            _ -> throwError "Tried to use set on something that was neither a variable nor a pair"
       in go $ Symbol Nil
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
