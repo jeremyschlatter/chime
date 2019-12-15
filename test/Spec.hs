@@ -379,6 +379,12 @@ spec = do
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"
 
+      [r|
+      (let x '(a b c)
+        (zap cdr x)
+        x)
+      |] `is` "(b c)"
+
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
       "((fn (x) (cons 'a x)) 'b)" `is` "(a . b)"
