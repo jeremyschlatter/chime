@@ -366,6 +366,7 @@ spec = do
         (set (cadr x) 'z)
         x)
       |] `is` "(a z c)"
+      "(set \\a 5)" `is` "<error>"
 
       "((fn (x (o y x)) y) 'a)" `is` "a"
 
@@ -442,7 +443,13 @@ evalIn s state =
        x
 
 evalInShouldBe :: String -> String -> EvalState -> Expectation
-evalInShouldBe a b = evalIn a >=> repr >=> assertEqual ("> " <> a) b
+evalInShouldBe a b state =
+  readThenRunEval "test case" a state >>= \(x, postState) ->
+    either
+      (\e -> if b == "<error>" then pure () else
+         failure $ a <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
+      (repr >=> assertEqual ("> " <> a) b)
+      x
 
 eval :: String -> IO (Object IORef)
 eval s = builtinsIO >>= evalIn s
