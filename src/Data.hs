@@ -28,7 +28,6 @@ data Object r
   | Pair (r (Pair r))
   | Character Character
   | Stream (r Stream)
-  | WhereResult (Object r)
 
 type Error = String
 
@@ -41,7 +40,7 @@ type EvalMonad = ExceptT Error (ContT (Either Error (Object IORef)) (StateT Eval
 data EvalState = EvalState
  { _globe :: Environment
  , _scope :: NonEmpty Environment
- , _locs :: [()]
+ , _locs :: [Bool]
  , _dyns :: Environment
  , _debug :: [String]
  , _vmark :: IORef (Pair IORef)
@@ -172,7 +171,6 @@ infixr 4 .|
 
 refSwap :: (MonadRef m, r ~ Ref m) => Object Identity -> Identity (m (Object r))
 refSwap = \case
-  WhereResult x -> WhereResult <$$> refSwap x
   Symbol s -> pure $ pure $ Symbol s
   Character c -> pure $ pure $ Character c
   Stream r -> readRef r >>= \s -> pure $ fmap Stream $ newRef s
@@ -271,7 +269,6 @@ instance Repr m Character where
   repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
 instance Repr m (Object m) where
   repr = \case
-    WhereResult x -> repr x
     Symbol s -> repr s
     Pair p -> repr p
     Character c -> repr c

@@ -144,15 +144,15 @@ specialForms :: [(String, SpecialForm)]
 specialForms = (\f -> (formName f, f)) <$>
   [ Form1 "quote" pure
   , Lit
-  , FormN "if" $ let
+  , FormN "if" let
       go = \case
         [] -> pure $ Symbol Nil
-        [x] -> evaluate x
+        [x] -> evreturn x
         b:x:rest -> evaluate b >>= \case
           Symbol Nil -> go rest
-          _ -> evaluate x
+          _ -> evreturn x
       in go
-  , FormN "apply" $ let
+  , FormN "apply" let
       go acc = \case
         x :| y:ys -> evaluate x >>= flip go (y:|ys) . (<|acc)
         -- @incomplete apply can take a dotted list in its last
@@ -165,22 +165,20 @@ specialForms = (\f -> (formName f, f)) <$>
             <> "that has not been implemented yet)."
           Just lst -> go' acc lst where
             go' acc' = \case
-              [] -> listToObject (pure (head ll) : fmap quote (tail ll)) >>= evaluate
+              [] -> listToObject (pure (head ll) : fmap quote (tail ll)) >>= evreturn
                 where ll = NE.reverse acc'
               c:cs -> go' (c<|acc') cs
       badParams = throwError "apply requires at least two parameters"
       in \case fa : r:est -> go (pure fa) (r:|est); _ -> badParams where
-  , Form1 "where" let
-      pushLoc = locs %= (():)
-      popLoc = locs %= \case
-        [] -> error "interpreter bug: should be impossible because of call to pushLoc"
-        _:xs -> xs
-      unWhere = \case
-        WhereResult x -> pure x
-        _ -> throwError $ "called where on a value that does not come from a pair"
-      in \x -> pushLoc *> (evaluate x >>= unWhere) <* popLoc
+  , Form1 "where" \x -> do
+      locs %= (True:)
+      r <- evreturn x
+      use locs >>= \case
+        True:rest -> (locs .= rest) *>
+          throwError "called where on a value that does not come from a pair"
+        _ -> pure r
   , Form3 "dyn" \v x y -> runMaybeT (toVariable v) >>= \case
-        Just v' -> evaluate x >>= \evX -> pushDyn evX *> evaluate y <* popDyn where
+        Just v' -> evaluate x >>= \evX -> pushDyn evX *> evreturn y <* popDyn where
           pushDyn evX = dyns %= ((v',evX):)
           popDyn = dyns %= \case
             [] -> error "interpreter bug: should be impossible because of call to pushDyn"
@@ -190,10 +188,10 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form2 "after" \x y -> do
       preX <- get
       catchError (void $ evaluate x) $ const $ put preX
-      evaluate y
+      evreturn y
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
-      listToObject [pure f, pure c] >>= evaluate
+      listToObject [pure f, pure c] >>= evreturn
   , FormN "set" let
       go r = \case
         [] -> pure r
@@ -203,6 +201,7 @@ specialForms = (\f -> (formName f, f)) <$>
         Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
 
         var:val:rest -> runMaybeT (toVariable var) >>= \case
+          -- @incomplete: re-visit this whole function for where + setting pairs
           Just v -> evaluate val >>= \val' -> (globe %= ((v, val'):)) *> go val' rest
           _ -> throwError "Tried to assign to a non-variable with set"
       in go $ Symbol Nil
@@ -211,9 +210,9 @@ specialForms = (\f -> (formName f, f)) <$>
   , FormN "def" \case
       [] -> throwError "'def' received no arguments"
       -- @incomplete: does not capture scope in the three-argument case
-      [n, p, e] -> evaluate =<<
+      [n, p, e] -> evreturn =<<
         ("set" ~~ n ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e))
-      n:rest -> evaluate =<< "set" ~~ n ~| ("fn" ~~ listToObject @EvalMonad (pure <$> rest))
+      n:rest -> evreturn =<< "set" ~~ n ~| ("fn" ~~ listToObject @EvalMonad (pure <$> rest))
 
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
@@ -227,7 +226,7 @@ specialForms = (\f -> (formName f, f)) <$>
         x -> pure $ Left x
       in fmap (either id id) . go
 
-  , Form3 "mac" \n p e -> evaluate =<<
+  , Form3 "mac" \n p e -> evreturn =<<
       ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
 
   -- numbers
@@ -313,7 +312,6 @@ primitives = (\p -> (primName p, p)) <$>
         Character _ -> 'c' :| "har"
         Pair _ -> 'p' :| "air"
         Stream _ -> 's' :| "tream"
-        WhereResult x -> go x
       in pure . Symbol . MkSymbol . go
   , xarAndXdr "xar" first
   , xarAndXdr "xdr" second
@@ -369,8 +367,8 @@ primitives = (\p -> (primName p, p)) <$>
       _ -> throwError "invalid argument to cls"
   -- @incomplete: this throws away info when the argument is not a string
   -- @consider: what if another error is signaled during evaluation of the argument?
-  , Prim1 "err" $ string >=> E.throwError . \case
-      Nothing -> "<error>"
+  , Prim1 "err" $ \x -> repr x >>= \rep -> string x >>= E.throwError . \case
+      Nothing -> rep
       Just s -> unCharacter <$> s
   ] where
       carAndCdr nm fn w = Prim1 nm \case
@@ -378,8 +376,8 @@ primitives = (\p -> (primName p, p)) <$>
         -- If we are inside a "where", return the tuple and our location.
         -- Otherwise, we return the normal value.
         Pair ra -> readPair ra >>= \tup -> use locs >>= \case
-          [] -> pure $ fn tup
-          _ -> WhereResult <$> (Pair ra ~| Sym @IORef w "")
+          True:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
+          _ -> pure $ fn tup
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
@@ -438,8 +436,6 @@ destructure p a' = pushScope *> go p a' <* popScope where
       "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a stream."
     Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
-    -- @incomplete: It seems dodgy to have a WhereResult here. Can we make that impossible?
-    Case3of3 (WhereResult x) -> go x arg
     Case3of3 (Pair pRef) ->
       -- let go' (pf1, a1) (pf2, a2) = bisequence (go pf1 a1, go pf2 a2) <&> uncurry (liftA2 (<>))
       let go' (pf1, a1) (pf2, a2) = (liftA2 (<>)) <$> go pf1 a1 <*> go pf2 a2
@@ -468,7 +464,10 @@ with l m e = push *> m <* pop where
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
+evaluate = flip (with locs) False . evreturn
+
+evreturn :: Object IORef -> EvalMonad (Object IORef)
+evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   -- characters
   c@(Character _) -> pure c
 
@@ -530,15 +529,13 @@ evaluate expr = {-bind (repr expr) $ with debug $-} case expr of
         Closure (MkClosure env params body) -> do
           (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
             either pure
-              (\bound -> withScope (bound <> env) (evaluate body))
+              (\bound -> withScope (bound <> env) (evreturn body))
         Macro (MkClosure env params body) -> do
           destructure params argTree >>=
             either pure
-              (\bound -> (withScope (bound <> env) (evaluate body)) >>= evaluate)
+              (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
 
       _ -> giveUp
-
-  WhereResult _ -> giveUp
 
   where
     withScope :: Environment -> EvalMonad a -> EvalMonad a
