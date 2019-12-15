@@ -21,7 +21,7 @@ data Pair r
   = MkPair (Object r, Object r)
   | Number Number
   | Continuation (Object IORef -> EvalMonad (Object IORef))
-data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamMask :: Word8 }
+data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamPlace :: Int }
 
 data Object r
   = Symbol Symbol
@@ -50,7 +50,7 @@ data EvalState = EvalState
 $(makeLenses ''EvalState)
 
 newStream :: (MonadRef m, Ref m ~ IORef) => Handle -> m (IORef Stream)
-newStream h = newRef (MkStream h 0 (bit 0))
+newStream h = newRef (MkStream h 0 0)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
 emptyState = EvalState [] (pure []) [] [] []

@@ -346,25 +346,46 @@ primitives = (\p -> (primName p, p)) <$>
         <> rep <> " is not a symbol."
   , Prim2 "wrb" \b' s' -> do
       let wBit = case b' of
-                   Character (MkCharacter '0') -> Just 0
-                   Character (MkCharacter '1') -> Just 0xff
+                   Character (MkCharacter '0') -> Just False
+                   Character (MkCharacter '1') -> Just True
                    _ -> Nothing
       stream <- runMaybeT @EvalMonad $ case s' of
         Stream r -> (r,) <$> readRef r
         Symbol Nil -> use outs >>= \r -> (r,) <$> readRef r
         _ -> empty
       case (wBit, stream) of
-        (Just b, Just (ref, MkStream h buf mask)) -> let
-          newBuf = buf .|. (b .&. mask)
-          newMask = rotate mask (1)
+        (Just b, Just (ref, MkStream h buf idx)) -> let
+          newBuf = if b then setBit buf idx else buf
+          newIdx = (idx + 1) `mod` 8
           in Symbol Nil <$
-            if newMask == bit 0
+            if newIdx == 0
             then do
               lift $ lift $ lift $ B.hPut h (B.singleton newBuf)
-              writeRef ref $ MkStream h 0 newMask
+              writeRef ref $ MkStream h 0 newIdx
             else
-              writeRef ref $ MkStream h newBuf newMask
+              writeRef ref $ MkStream h newBuf newIdx
         _ -> throwError "invalid arguments to wrb"
+  , Prim1 "rdb" let
+      -- rdb' = (flip bind (\x -> repr x >>= \r -> traceM r $> x)) . rdb
+      rdb ref = readRef ref >>= \(MkStream h buf idx) ->
+        let readBit x = Character $ MkCharacter $ bool '0' '1' $ testBit x (7 - idx)
+        in if idx == 0
+           then do
+             -- @incomplete: this blocks, and rdb should not block
+             -- Fixing this will be difficult because the underlying Haskell interface
+             -- does not support a non-blocking read that also reports EOF.
+             b <- lift $ lift $ lift $ B.hGet h 1
+             case B.unpack b of
+               [] -> pure $ Sym 'e' "of"
+               -- [] -> pure $ Symbol Nil
+               [x] -> writeRef ref (MkStream h x 1) $> readBit x
+               _ -> interpreterBug
+                 "Haskell's Data.ByteString.hGet returned more bytes than it promised"
+           else writeRef ref (MkStream h buf ((idx + 1) `mod` 8)) $> readBit buf
+      in \case
+        Stream ref -> rdb ref
+        Symbol Nil -> use ins >>= rdb
+        x -> repr x >>= throwError . ("tried to read from a non-stream: " <>)
   , Prim2 "ops" \x y -> string x >>= \x' -> case (x', y) of
       (
         Just path,
@@ -379,7 +400,7 @@ primitives = (\p -> (primName p, p)) <$>
       _ -> throwError "invalid arguments to ops"
   , Prim1 "cls" \case
       Stream r -> readRef r >>= \(MkStream h b m) -> lift $ lift $ lift do
-        if m == bit 0
+        if m == 0
         then pure ()
         -- flush any bits left in the buffer
         else B.hPut h (B.singleton b)
