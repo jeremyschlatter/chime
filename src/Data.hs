@@ -15,13 +15,25 @@ import Common
 -- -----------------------------------------------------------------------
 
 type Number = Complex Rational
+
 newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
+
 newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
+
 data Pair r
   = MkPair (Object r, Object r)
   | Number Number
   | Continuation (Object IORef -> EvalMonad (Object IORef))
+  | OptimizedFunction (OptimizedFunction r)
+
 data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamPlace :: Int }
+
+data OptimizedFunction r = MkOptimizedFunction
+  { fnEnv :: Environment
+  , fnParams :: Object r
+  , fnBody :: Environment -> EvalMonad (Object IORef)
+  , fnFallback :: (Object r, Object r)
+  }
 
 data Object r
   = Symbol Symbol
@@ -110,6 +122,8 @@ readPair x = readRef x >>= \case
   -- Collapse the optimized representation! :(
   Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
+  -- Collapse the optimized representation! :(
+  OptimizedFunction f -> writeRef x (MkPair (fnFallback f)) $> fnFallback f
 
 instance Repr r (Either (r (Pair r)) Symbol) where
   repr = either repr repr
@@ -140,7 +154,6 @@ instance ToObject m r [m (Object r)] where
   toObject = \case
     [] -> toObject "nil"
     x:xs -> x .* toObject @m @r xs
--- @performance: numbers have an obvious performance problem to solve
 instance ToObject m r (Complex Rational) where
   toObject n = fmap Pair $ newRef $ Number n
 instance ToObject m r Bool where
@@ -180,6 +193,16 @@ refSwap = \case
   Pair r -> readRef r >>= \case
     Number n -> pure $ fmap Pair $ newRef $ Number n
     Continuation c -> pure $ fmap Pair $ newRef $ Continuation c
+    OptimizedFunction (MkOptimizedFunction env params body (fba, fbb)) -> do
+      params' <- refSwap params
+      fba' <- refSwap fba
+      fbb' <- refSwap fbb
+      pure $ do
+        params'' <- params'
+        fba'' <- fba'
+        fbb'' <- fbb'
+        fmap Pair $ newRef $ OptimizedFunction $
+          MkOptimizedFunction env params'' body (fba'', fbb'')
     MkPair (car, cdr) -> do
       car' <- refSwap car
       cdr' <- refSwap cdr
@@ -261,6 +284,7 @@ instance Repr r' (r' (Pair r')) where
       go pre post ref' = readRef ref' >>= \case
         Number n -> pure $ showNumber n
         Continuation _ -> pure "<continuation>"
+        OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>= repr
         MkPair (car, cdr) -> repr car >>= \car' ->
           (\s -> pre <> s <> post) . (car' <>) <$> mcase2 (number, id) cdr \case
             Case1of2 n -> pure (" . " <> showNumber n)

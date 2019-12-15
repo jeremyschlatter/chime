@@ -130,7 +130,8 @@ data Operator
   | SpecialForm SpecialForm
   | Macro Closure
   | Closure Closure
-  | Cont (Object IORef -> EvalMonad (Object IORef))
+  | TheContinuation (Object IORef -> EvalMonad (Object IORef))
+  | TheOptimizedFunction (OptimizedFunction IORef)
 
 data Closure = MkClosure Environment (Object IORef) (Object IORef)
 
@@ -444,10 +445,14 @@ continuation = \case
 operator :: Object IORef -> EvalMonad (Maybe Operator)
 operator = \case
   (specialForm -> Just f) -> pure $ Just $ SpecialForm f
-  x -> evaluate x >>= \x' -> bisequence (runMaybeT (continuation x'), properList x') >>= \case
-    (Just c, _) -> pure $ Just $ Cont c
-    (_, Just (primitive -> Just f)) -> pure $ Just $ Primitive f
-    (_, Just l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
+  x -> evaluate x >>= \case
+    Pair ref -> readRef ref >>= \case
+      Continuation c -> pure $ Just $ TheContinuation c
+      OptimizedFunction f -> pure $ Just $ TheOptimizedFunction f
+      _ -> properList1 ref >>= \case
+        Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
+        Just (toList -> l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
+        _ -> pure Nothing
     _ -> pure Nothing
 
 toOptionalVar :: Object IORef -> EvalMonad (Maybe (Object IORef, Object IORef))
@@ -548,10 +553,14 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
 
       -- operators with arguments
       (_, _, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
-        Cont c -> case args of
+        TheContinuation c -> case args of
           [] -> throwError "tried to call a continuation with no arguments"
           [x] -> evaluate x >>= c
           _ -> throwError "tried to call a continuation with too many arguments"
+        TheOptimizedFunction f ->
+          (traverse evaluate >=> listToObject . fmap pure >=> destructure (fnParams f)) args >>=
+            either pure
+              (\bound -> fnBody f (bound <> fnEnv f))
         Primitive p -> case p of
           Prim1 nm f -> case args of
             [] -> call (Symbol Nil)
@@ -574,11 +583,11 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
           Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
           FormN _ f -> f args
           Lit -> pure expr
-        Closure (MkClosure env params body) -> do
+        Closure (MkClosure env params body) ->
           (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
             either pure
               (\bound -> withScope (bound <> env) (evreturn body))
-        Macro (MkClosure env params body) -> do
+        Macro (MkClosure env params body) ->
           destructure params argTree >>=
             either pure
               (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
