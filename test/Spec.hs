@@ -367,6 +367,8 @@ spec = do
         x)
       |] `is` "(a z c)"
       "(set \\a 5)" `is` "<error>"
+      "(quote a b)" `is` "<error>"
+      "(let x 'a (where x))" `is` "((x . a) d)"
 
       "((fn (x (o y x)) y) 'a)" `is` "a"
 
