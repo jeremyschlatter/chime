@@ -62,14 +62,14 @@ spec = do
       "apply" `is` "apply"
 
       ("chars" `isLike` flip properListOf \case
-         Pair ref -> readPair ref >>= \case
+         Pair ref -> readPair "chars isLike" ref >>= \case
            (Character _, s) -> string s
            _ -> empty
          _ -> empty
        ) "a list of pairs of (<character> . <binary representation>)"
 
       let varValList = flip properListOf \case
-                          Pair ref -> readPair ref <&> \case
+                          Pair ref -> readPair "varValList isLike" ref <&> \case
                             (Symbol _, _) -> Just ()
                             _ -> Nothing
                           _ -> empty

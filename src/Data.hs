@@ -116,10 +116,11 @@ instance (MonadMutableRef m, MonadTrans t, Monad (t m)) => MonadMutableRef (t m)
 
 -- -----------------------------------------------------------------------
 
-readPair :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Object r, Object r)
-readPair x = readRef x >>= \case
+readPair :: (MonadMutableRef m, r ~ Ref m) => String -> r (Pair r) -> m (Object r, Object r)
+readPair _why x = readRef x >>= \case
   MkPair p -> pure p
   -- Collapse the optimized representation! :(
+  -- Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> why
   Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
   -- Collapse the optimized representation! :(
@@ -212,7 +213,7 @@ refSwap = \case
         car'' .* cdr''
 
 properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
-properList1 ref = readPair ref >>=
+properList1 ref = readPair "properList1" ref >>=
   \(car, cdr) -> fmap (car :|) <$> properList cdr
 
 properList :: (MonadMutableRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])

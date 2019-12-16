@@ -104,7 +104,7 @@ vref s = do
 toVariable :: Object IORef -> MaybeT EvalMonad (Object IORef)
 toVariable = \case
   s@(Symbol _) -> pure $ s
-  p@(Pair r) -> bisequence (readPair r, use vmark) >>= \case
+  p@(Pair r) -> bisequence (readPair "toVar" r, use vmark) >>= \case
     ((Pair carRef, _), v) -> case carRef == v of
       True -> pure p
       _ -> empty
@@ -228,7 +228,7 @@ specialForms = (\f -> (formName f, f)) <$>
             Just
              [ Pair ref
              , Sym ((\case 'a' -> Just True; 'd' -> Just False; _ -> Nothing) -> Just setCar) ""
-             ] -> readPair ref >>= \(car, cdr) -> do
+             ] -> readPair "set" ref >>= \(car, cdr) -> do
                 writeRef ref $ MkPair $ bool (car, val') (val', cdr) setCar
                 go val' rest
             _ -> throwError "Tried to use set on something that was neither a variable nor a pair"
@@ -245,7 +245,7 @@ specialForms = (\f -> (formName f, f)) <$>
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
       go = \case
-        Pair ref -> readPair ref >>= \p -> case p of
+        Pair ref -> readPair "backquote" ref >>= \p -> case p of
           (Sym '~' "comma", x) -> Left <$> evaluate x
           (Sym '~' "splice", x) -> Right <$> evaluate x
           _ -> bimapM go go p >>= \(x, either id id -> cdr) -> Left <$> case x of
@@ -430,13 +430,13 @@ primitives = (\p -> (primName p, p)) <$>
         Symbol Nil -> pure $ Symbol Nil
         -- If we are inside a "where", return the tuple and our location.
         -- Otherwise, we return the normal value.
-        Pair ra -> readPair ra >>= \tup -> use locs >>= \case
+        Pair ra -> readPair "car/cdr" ra >>= \tup -> use locs >>= \case
           True:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
           _ -> pure $ fn tup
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
-        (Pair r, y) -> ((readPair r <&> MkPair . (which $ const y)) >>= writeRef r) $> y
+        (Pair r, y) -> ((readPair "xar/xdr" r <&> MkPair . (which $ const y)) >>= writeRef r) $> y
         (x, _) -> repr x >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
@@ -498,12 +498,12 @@ destructure p a' = pushScope *> go p a' <* popScope where
     Case3of3 (Pair pRef) ->
       -- let go' (pf1, a1) (pf2, a2) = bisequence (go pf1 a1, go pf2 a2) <&> uncurry (liftA2 (<>))
       let go' (pf1, a1) (pf2, a2) = (liftA2 (<>)) <$> go pf1 a1 <*> go pf2 a2
-      in readPair pRef >>= \(p1, p2) ->
+      in readPair "destructure 1" pRef >>= \(p1, p2) ->
         bisequence (toOptionalVar p1, toOptionalVar p2) >>= \(o1, o2) ->
           case arg of
             Pair aRef -> do
               let toVar v = maybe v fst
-              (a1, a2) <- readPair aRef
+              (a1, a2) <- readPair "destructure 2" aRef
               go' (toVar p1 o1, a1) (toVar p2 o2, a2)
             x -> case (o1, o2) of
               (Nothing, Nothing) -> Left <$> throwError "Too few arguments in function call"
@@ -541,64 +541,66 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
     where getEnv = use >=> listToObject . fmap (pure . Pair)
 
   -- pairs
-  Pair ref -> readPair ref >>= \(_, argTree) ->
-    (,,,)
-      <$> runMaybeT (continuation expr)
-      <*> runMaybeT (toVariable expr)
-      <*> string expr
-      <*> properList1 ref >>= \case
+  Pair ref -> readRef ref >>= \case
+    Number _ -> pure expr
+    _ -> readPair "eval pair" ref >>= \(_, argTree) ->
+      (,,,)
+        <$> runMaybeT (continuation expr)
+        <*> runMaybeT (toVariable expr)
+        <*> string expr
+        <*> properList1 ref >>= \case
 
-      -- continuations
-      (Just _, _, _, _) -> pure expr
+        -- continuations
+        (Just _, _, _, _) -> pure expr
 
-      -- vmark references
-      (_, Just _, _, _) -> vref expr
+        -- vmark references
+        (_, Just _, _, _) -> vref expr
 
-      -- strings
-      (_, _, Just _, _) -> pure expr
+        -- strings
+        (_, _, Just _, _) -> pure expr
 
-      -- operators with arguments
-      (_, _, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
-        TheContinuation c -> case args of
-          [] -> throwError "tried to call a continuation with no arguments"
-          [x] -> evaluate x >>= c
-          _ -> throwError "tried to call a continuation with too many arguments"
-        TheOptimizedFunction f ->
-          (traverse evaluate >=> listToObject . fmap pure >=> destructure (fnParams f)) args >>=
-            either pure
-              (\bound -> fnBody f (bound <> fnEnv f))
-        Primitive p -> case p of
-          Prim1 nm f -> case args of
-            [] -> call (Symbol Nil)
-            [a] -> call a
-            _ -> excessPrimParams nm args 1
-            where call = evaluate >=> f
-          Prim2 nm f -> case args of
-            [] -> call (Symbol Nil) (Symbol Nil)
-            [a] -> call a (Symbol Nil)
-            [a,b] -> call a b
-            _ -> excessPrimParams nm args 2
-            where
-              call a b = do
-                a' <- evaluate a
-                b' <- evaluate b
-                f a' b'
-        SpecialForm form -> case form of
-          Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
-          Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
-          Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
-          FormN _ f -> f args
-          Lit -> pure expr
-        Closure (MkClosure env params body) ->
-          (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
-            either pure
-              (\bound -> withScope (bound <> env) (evreturn body))
-        Macro (MkClosure env params body) ->
-          destructure params argTree >>=
-            either pure
-              (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+        -- operators with arguments
+        (_, _, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
+          TheContinuation c -> case args of
+            [] -> throwError "tried to call a continuation with no arguments"
+            [x] -> evaluate x >>= c
+            _ -> throwError "tried to call a continuation with too many arguments"
+          TheOptimizedFunction f ->
+            (traverse evaluate >=> listToObject . fmap pure >=> destructure (fnParams f)) args >>=
+              either pure
+                (\bound -> fnBody f (bound <> fnEnv f))
+          Primitive p -> case p of
+            Prim1 nm f -> case args of
+              [] -> call (Symbol Nil)
+              [a] -> call a
+              _ -> excessPrimParams nm args 1
+              where call = evaluate >=> f
+            Prim2 nm f -> case args of
+              [] -> call (Symbol Nil) (Symbol Nil)
+              [a] -> call a (Symbol Nil)
+              [a,b] -> call a b
+              _ -> excessPrimParams nm args 2
+              where
+                call a b = do
+                  a' <- evaluate a
+                  b' <- evaluate b
+                  f a' b'
+          SpecialForm form -> case form of
+            Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
+            Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
+            Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
+            FormN _ f -> f args
+            Lit -> pure expr
+          Closure (MkClosure env params body) ->
+            (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
+              either pure
+                (\bound -> withScope (bound <> env) (evreturn body))
+          Macro (MkClosure env params body) ->
+            destructure params argTree >>=
+              either pure
+                (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
 
-      _ -> giveUp
+        _ -> giveUp
 
   where
     withScope :: Environment -> EvalMonad a -> EvalMonad a
