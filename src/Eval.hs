@@ -270,6 +270,12 @@ specialForms = (\f -> (formName f, f)) <$>
   , numFn1 'e' "ven" $ \case
       (n :+ 0) -> denominator n == 1 && even (numerator n)
       _ -> False
+  , numFnN '>' "" let
+      go = \case
+        [] -> True
+        [_] -> True
+        (ar :+ ai) : b@(br :+ bi) : cs -> ar > br && ai >= bi && go (b:cs)
+      in go
   ]
 
 numAdd :: Number -> Number -> Number
