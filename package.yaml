@@ -48,6 +48,7 @@ library:
   - mtl
   - parser-combinators
   - text
+  - time
   - transformers
 
 executables:

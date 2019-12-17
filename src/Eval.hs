@@ -15,6 +15,7 @@ import qualified Data.ByteString as B
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import Data.Text.Encoding
+import Data.Time.Clock
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
@@ -96,6 +97,14 @@ nativeFns =
         [_] -> True
         (ar :+ ai) : b@(br :+ bi) : cs -> ar >= br && ai >= bi && go (b:cs)
       in go
+  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [x] -> do
+        start <- liftIO getCurrentTime
+        result <- evaluate x
+        end <- liftIO getCurrentTime
+        liftIO $ putStrLn $ show $ diffUTCTime end start
+        pure result
+      _ -> throwError "time requires exactly one argument"
   ]
 
 withNativeFns :: forall m. (MonadRef m, IORef ~ Ref m) => EvalState -> m EvalState
@@ -687,7 +696,7 @@ red s = "\ESC[31m" <> s <> "\ESC[0m"
 repl :: IO ()
 repl = do
   args <- getArgs
-  s <- case args of
+  s <- withNativeFns =<< case args of
     [] -> builtinsIO
     [f] -> bel f >>= \es -> either die pure es
     _ -> die "Sorry, I can only handle up to one file"
