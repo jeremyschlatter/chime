@@ -572,6 +572,12 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   -- streams
   s@(Stream _) -> pure s
 
+  -- built-in symbols
+  (Sym 't' "") -> pure expr
+  (Sym 'o' "") -> pure expr
+  (Sym 'a' "pply") -> pure expr
+  (Sym 'n' "il") -> pure expr
+
   -- symbols
   (Symbol (MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
