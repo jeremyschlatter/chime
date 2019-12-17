@@ -2,6 +2,7 @@ module Main where
 
 import BasePrelude hiding ((>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
+import Data.Time.Clock
 import RawStringsQQ
 import Test.HUnit.Base
 import Test.Hspec
@@ -370,6 +371,12 @@ spec = do
       "(quote a b)" `is` "<error>"
       "(let x 'a (where x))" `is` "((x . a) d)"
 
+--       [r|
+--       (dyn x 'a
+--         (do (set x 'b)
+--             x))
+--       |] `is` "b"
+
       "((fn (x (o y x)) y) 'a)" `is` "a"
 
       replTest $ []
@@ -452,6 +459,14 @@ evalInShouldBe a b state =
          failure $ a <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
       (repr >=> assertEqual ("> " <> a) b)
       x
+
+debugEvalInShouldBe :: String -> String -> EvalState -> Expectation
+debugEvalInShouldBe a b state = do
+  start <- getCurrentTime
+  result <- evalInShouldBe a b state
+  end <- getCurrentTime
+  putStrLn $ a <> ": " <> show (diffUTCTime end start)
+  pure result
 
 eval :: String -> IO (Object IORef)
 eval s = builtinsIO >>= evalIn s

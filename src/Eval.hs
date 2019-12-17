@@ -72,7 +72,7 @@ builtins = (globe <~) $ traverse
       x:xs -> MkSymbol (x :| xs)
 
 nativeFns :: [(String, OptimizedFunction IORef)]
-nativeFns =
+nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
   [ ("+",) $ numFnN $ foldr numAdd (0 :+ 0)
   , ("-",) $ numFnN \case
       [] -> (0 :+ 0)
@@ -105,10 +105,30 @@ nativeFns =
         liftIO $ putStrLn $ show $ diffUTCTime end start
         pure result
       _ -> throwError "time requires exactly one argument"
+
+  ]
+
+nativeMacros :: [(String, OptimizedFunction IORef)]
+nativeMacros =
+  [ ("or",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      go = \case
+        [] -> pure $ Symbol Nil
+        x:xs -> evaluate x >>= \case
+          Symbol Nil -> go xs
+          x' -> pure x'
+      in go
+  , ("and",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      go = \case
+        [] -> pure $ Sym 't' ""
+        [x] -> evaluate x
+        x:xs -> evaluate x >>= \case
+          Symbol Nil -> pure $ Symbol Nil
+          _ -> go xs
+      in go
   ]
 
 withNativeFns :: forall m. (MonadRef m, IORef ~ Ref m) => EvalState -> m EvalState
-withNativeFns startState = foldM oneFn startState nativeFns where
+withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = fnToObj f >>= \x -> (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
   fnToObj :: OptimizedFunction IORef -> m (Object IORef)
@@ -610,7 +630,7 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
             [] -> throwError "tried to call a continuation with no arguments"
             [x] -> evaluate x >>= c
             _ -> throwError "tried to call a continuation with too many arguments"
-          TheOptimizedFunction f -> traverse evaluate args >>= fnBody f
+          TheOptimizedFunction f -> fnBody f args
           Primitive p -> case p of
             Prim1 nm f -> case args of
               [] -> call (Symbol Nil)

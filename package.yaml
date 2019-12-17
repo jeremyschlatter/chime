@@ -75,4 +75,5 @@ tests:
     - hspec
     - HUnit
     - template-haskell
+    - time
     - transformers
