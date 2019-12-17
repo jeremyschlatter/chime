@@ -70,6 +70,73 @@ builtins = (globe <~) $ traverse
       [] -> interpreterBug "called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
+nativeFns :: [(String, OptimizedFunction IORef)]
+nativeFns =
+  [ ("+",) $ numFnN $ foldr numAdd (0 :+ 0)
+  , ("-",) $ numFnN \case
+      [] -> (0 :+ 0)
+      [a] -> (0 :+ 0) `numSub` a
+      a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
+  , ("*",) $ numFnN $ foldr numMul (1 :+ 0)
+  , ("odd",) $ numFn1 \case
+      (n :+ 0) -> denominator n == 1 && odd (numerator n)
+      _ -> False
+  , ("even",) $ numFn1 \case
+      (n :+ 0) -> denominator n == 1 && even (numerator n)
+      _ -> False
+  , (">",) $ numFnN let
+      go = \case
+        [] -> True
+        [_] -> True
+        (ar :+ ai) : b@(br :+ bi) : cs -> ar > br && ai >= bi && go (b:cs)
+      in go
+  , (">=",) $ numFnN let
+      go = \case
+        [] -> True
+        [_] -> True
+        (ar :+ ai) : b@(br :+ bi) : cs -> ar >= br && ai >= bi && go (b:cs)
+      in go
+  ]
+
+withNativeFns :: forall m. (MonadRef m, IORef ~ Ref m) => EvalState -> m EvalState
+withNativeFns startState = foldM oneFn startState nativeFns where
+  oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
+  oneFn s (nm, f) = fnToObj f >>= \x -> (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
+  fnToObj :: OptimizedFunction IORef -> m (Object IORef)
+  fnToObj = fmap Pair . newRef . OptimizedFunction
+  sym = \case
+    [] -> interpreterBug "unexpected empty string"
+    n:ame -> Sym n ame
+
+
+setNativeFns :: EvalMonad ()
+setNativeFns = get >>= withNativeFns >>= put
+
+numAdd :: Number -> Number -> Number
+numAdd a b = (realPart a + realPart b) :+ (imagPart a + imagPart b)
+
+numSub :: Number -> Number -> Number
+numSub a b = (realPart a - realPart b) :+ (imagPart a - imagPart b)
+
+numMul :: Number -> Number -> Number
+numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
+
+-- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
+numFnN
+  :: (ToObject EvalMonad IORef r) => ([Number] -> r) -> OptimizedFunction IORef
+numFnN f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $
+  traverse (runMaybeT . number) >=> maybe
+    (throwError "non-numbers were passed to an optimized numeric function")
+    (toObject . f)
+    . sequence
+
+numFn1 :: (ToObject EvalMonad IORef r) => (Number -> r) -> OptimizedFunction IORef
+numFn1 f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  [x] -> runMaybeT (number x) >>= maybe
+    (throwError "non-number was passed to an optimized numeric function")
+    (toObject . f)
+  _ -> tooFewArguments
+
 throwError :: String -> EvalMonad (Object IORef)
 throwError s = listToObject [
   o "err", listToObject (pure . Character . MkCharacter <$> s)] >>= evaluate
@@ -257,47 +324,7 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form3 "mac" \n p e -> evreturn =<<
       ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
 
-  -- numbers
-  , numFnN '+' "" $ foldr numAdd (0 :+ 0)
-  , numFnN '-' "" \case
-      [] -> (0 :+ 0)
-      [a] -> (0 :+ 0) `numSub` a
-      a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
-  , numFnN '*' "" $ foldr numMul (1 :+ 0)
-  , numFn1 'o' "dd" $ \case
-      (n :+ 0) -> denominator n == 1 && odd (numerator n)
-      _ -> False
-  , numFn1 'e' "ven" $ \case
-      (n :+ 0) -> denominator n == 1 && even (numerator n)
-      _ -> False
-  , numFnN '>' "" let
-      go = \case
-        [] -> True
-        [_] -> True
-        (ar :+ ai) : b@(br :+ bi) : cs -> ar > br && ai >= bi && go (b:cs)
-      in go
   ]
-
-numAdd :: Number -> Number -> Number
-numAdd a b = (realPart a + realPart b) :+ (imagPart a + imagPart b)
-
-numSub :: Number -> Number -> Number
-numSub a b = (realPart a - realPart b) :+ (imagPart a - imagPart b)
-
-numMul :: Number -> Number -> Number
-numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
-
--- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
-numFnN :: (ToObject EvalMonad IORef r) => Char -> String -> ([Number] -> r) -> SpecialForm
-numFnN c s f = FormN (c:s) $ (traverse (evaluate >=> runMaybeT . number)) >=> maybe
-  (throwError "non-numbers were passed to an optimized numeric function")
-  (toObject . f)
-  . sequence
-
-numFn1 :: (ToObject EvalMonad IORef r) => Char -> String -> (Number -> r) -> SpecialForm
-numFn1 c s f = Form1 (c:s) $ (evaluate >=> runMaybeT . number) >=> maybe
-  (throwError "non-number was passed to an optimized numeric function")
-  (toObject . f)
 
 -- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
 (~~) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
@@ -506,7 +533,7 @@ destructure p a' = pushScope *> go p a' <* popScope where
               (a1, a2) <- readPair "destructure 2" aRef
               go' (toVar p1 o1, a1) (toVar p2 o2, a2)
             x -> case (o1, o2) of
-              (Nothing, Nothing) -> Left <$> throwError "Too few arguments in function call"
+              (Nothing, Nothing) -> Left <$> tooFewArguments
               (Nothing, Just (v2, d2)) -> evaluate d2 >>= \e2 -> go' (p1, x) (v2, e2)
               -- @consider: is this behavior correct? these cases feel weird
               -- ((fn ((o x) . y) t))
@@ -514,6 +541,9 @@ destructure p a' = pushScope *> go p a' <* popScope where
               -- ((fn ((o x) . (o y)) t))
               (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 ->
                 go' (v1, x) (v2, e2)
+
+tooFewArguments :: EvalMonad (Object IORef)
+tooFewArguments = throwError "Too few arguments in function call"
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
@@ -565,10 +595,7 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
             [] -> throwError "tried to call a continuation with no arguments"
             [x] -> evaluate x >>= c
             _ -> throwError "tried to call a continuation with too many arguments"
-          TheOptimizedFunction f ->
-            (traverse evaluate >=> listToObject . fmap pure >=> destructure (fnParams f)) args >>=
-              either pure
-                (\bound -> fnBody f (bound <> fnEnv f))
+          TheOptimizedFunction f -> traverse evaluate args >>= fnBody f
           Primitive p -> case p of
             Prim1 nm f -> case args of
               [] -> call (Symbol Nil)

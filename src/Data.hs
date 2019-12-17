@@ -29,9 +29,7 @@ data Pair r
 data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamPlace :: Int }
 
 data OptimizedFunction r = MkOptimizedFunction
-  { fnEnv :: Environment
-  , fnParams :: Object r
-  , fnBody :: Environment -> EvalMonad (Object IORef)
+  { fnBody :: [Object IORef] -> EvalMonad (Object IORef)
   , fnFallback :: (Object r, Object r)
   }
 
@@ -120,8 +118,8 @@ readPair :: (MonadMutableRef m, r ~ Ref m) => String -> r (Pair r) -> m (Object 
 readPair _why x = readRef x >>= \case
   MkPair p -> pure p
   -- Collapse the optimized representation! :(
-  -- Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> why
-  Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
+  Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> _why
+  -- Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
   -- Collapse the optimized representation! :(
   OptimizedFunction f -> writeRef x (MkPair (fnFallback f)) $> fnFallback f
@@ -194,16 +192,14 @@ refSwap = \case
   Pair r -> readRef r >>= \case
     Number n -> pure $ fmap Pair $ newRef $ Number n
     Continuation c -> pure $ fmap Pair $ newRef $ Continuation c
-    OptimizedFunction (MkOptimizedFunction env params body (fba, fbb)) -> do
-      params' <- refSwap params
+    OptimizedFunction (MkOptimizedFunction body (fba, fbb)) -> do
       fba' <- refSwap fba
       fbb' <- refSwap fbb
       pure $ do
-        params'' <- params'
         fba'' <- fba'
         fbb'' <- fbb'
         fmap Pair $ newRef $ OptimizedFunction $
-          MkOptimizedFunction env params'' body (fba'', fbb'')
+          MkOptimizedFunction body (fba'', fbb'')
     MkPair (car, cdr) -> do
       car' <- refSwap car
       cdr' <- refSwap cdr

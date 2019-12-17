@@ -132,7 +132,7 @@ spec = do
 
   describe "multi-line repl sessions" do
 
-    state <- runIO builtinsIO
+    state <- runIO (builtinsIO >>= withNativeFns)
     let replTest = replTestWith state
     let (>>) = replInput
     let (>) = replOutput
@@ -504,5 +504,5 @@ preludeIO = do
   es <- bel input
   either
     (\e -> failure $ "failed to parse " <> input <> ": " <> e)
-    pure
+    withNativeFns
     es
