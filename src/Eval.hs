@@ -125,6 +125,16 @@ nativeMacros =
           Symbol Nil -> pure $ Symbol Nil
           _ -> go xs
       in go
+  , ("fn",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      parms : b:ody -> use scope >>= \(s:|_) ->
+        "lit" ~~ "clo" ~~ (listToObject @EvalMonad (pure . Pair <$> s)) ~~ parms ~|
+          case ody of
+            [] -> pure b
+            _ -> "do" ~~ go (b:ody) where
+              go = \case
+                [] -> pure $ Symbol Nil
+                x:xs -> x ~~ go xs
+      _ -> tooFewArguments
   ]
 
 withNativeFns :: forall m. (MonadRef m, IORef ~ Ref m) => EvalState -> m EvalState
