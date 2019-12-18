@@ -105,7 +105,25 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         liftIO $ putStrLn $ show $ diffUTCTime end start
         pure result
       _ -> throwError "time requires exactly one argument"
-
+  , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      go = \case
+        [] -> pure $ Symbol Nil
+        [x] -> pure x
+        x:xs -> x ~~ go xs
+      in go
+  , ("append",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
+      go accum = \case
+        [] -> listToObject (pure <$> accum)
+        [x] -> case accum of
+          [] -> pure x
+          xs -> properList x >>= \case
+            Nothing -> (pure @EvalMonad <$> xs) ~~ x
+            Just x' -> listToObject (pure <$> (xs <> x'))
+        x : xs -> properList x >>= \case
+          Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
+          Just l -> go (accum <> l) xs
+      in go []
   ]
 
 nativeMacros :: [(String, OptimizedFunction IORef)]
