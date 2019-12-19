@@ -58,7 +58,6 @@ spec = do
   describe "evaluation" do
 
     let is = evalShouldBe
-    let isLike = evalInShouldBeLike prelude
 
     it "evaluates examples from the spec" do
       "t" `is` "t"
@@ -66,20 +65,13 @@ spec = do
       "o" `is` "o"
       "apply" `is` "apply"
 
-      ("chars" `isLike` flip properListOf \case
-         Pair ref -> readPair "chars isLike" ref >>= \case
-           (Character _, s) -> string s $> ()
-           _ -> empty
-         _ -> empty
-       ) "a list of pairs of (<character> . <binary representation>)"
+      evalAndInspect prelude "chars" "a list of (<char> . <binary rep>)" $ flip properListOf \case
+         Pair p -> (readPair "" p >>= \case (Character _, s) -> string s; _ -> empty); _ -> empty
 
-      let varValList = flip properListOf \case
-                          Pair ref -> readPair "varValList isLike" ref >>= \case
-                            (Symbol _, _) -> pure ()
-                            _ -> empty
-                          _ -> empty
-      ("globe" `isLike` varValList) "a list of (var . val) pairs"
-      ("scope" `isLike` varValList) "a list of (var . val) pairs"
+      let evalEnv = \x -> evalAndInspect prelude x "a list of (var . val)" $ flip properListOf \case
+            Pair p -> (readPair "" p >>= \case (Symbol _, _) -> pure (); _ -> empty); _ -> empty
+      evalEnv "globe"
+      evalEnv "scope"
 
       "ins" `is` "nil"
       "outs" `is` "nil"
@@ -468,8 +460,8 @@ debugEvalInShouldBe state a b = do
   putStrLn $ a <> ": " <> show (diffUTCTime end start)
   pure result
 
-evalInShouldBeLike :: EvalState -> String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
-evalInShouldBeLike state s f desc = evalIn s state >>= \x -> repr x >>= \rep ->
+evalAndInspect :: EvalState -> String -> String -> (Object IORef -> MaybeT IO a) -> Expectation
+evalAndInspect state s desc f = evalIn s state >>= \x -> repr x >>= \rep ->
   runMaybeT (f x) >>=
     maybe (assertEqual (s <> " should evaluate to") desc rep) (const $ pure ())
 
