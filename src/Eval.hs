@@ -15,7 +15,7 @@ import qualified Data.ByteString as B
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import Data.Text.Encoding
-import Data.Time.Clock
+-- import Data.Time.Clock
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
@@ -97,14 +97,6 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [_] -> True
         (ar :+ ai) : b@(br :+ bi) : cs -> ar >= br && ai >= bi && go (b:cs)
       in go
-  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
-      [x] -> do
-        start <- liftIO getCurrentTime
-        result <- evaluate x
-        end <- liftIO getCurrentTime
-        liftIO $ putStrLn $ show $ diffUTCTime end start
-        pure result
-      _ -> throwError "time requires exactly one argument"
   , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go = \case
         [] -> pure $ Symbol Nil
@@ -124,6 +116,16 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
           Just l -> go (accum <> l) xs
       in go []
+
+--   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+--       [x] -> do
+--         start <- liftIO getCurrentTime
+--         result <- evaluate x
+--         end <- liftIO getCurrentTime
+--         liftIO $ putStrLn $ show $ diffUTCTime end start
+--         pure result
+--       _ -> throwError "time requires exactly one argument"
+
   ]
 
 nativeMacros :: [(String, OptimizedFunction IORef)]
@@ -155,12 +157,15 @@ nativeMacros =
       _ -> tooFewArguments
   ]
 
-withNativeFns :: forall m. (MonadRef m, IORef ~ Ref m) => EvalState -> m EvalState
+withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
 withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
-  oneFn s (nm, f) = fnToObj f >>= \x -> (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
-  fnToObj :: OptimizedFunction IORef -> m (Object IORef)
-  fnToObj = fmap Pair . newRef . OptimizedFunction
+  oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
+    Nothing -> interpreterBug $ nm <> " was not present in the global state"
+    Just (_, p) -> case p of
+      Pair ref -> readPair "native fns" ref >>= \n ->
+        writeRef ref (OptimizedFunction (f {fnFallback = n})) $> s
+      _ -> interpreterBug $ "non-pair in global binding for " <> nm
   sym = \case
     [] -> interpreterBug "unexpected empty string"
     n:ame -> Sym n ame
@@ -199,18 +204,23 @@ findMap p = \case
   [] -> Nothing
   x:xs -> maybe (findMap p xs) Just (p x)
 
-envLookup :: Object IORef -> Environment -> MaybeT EvalMonad (Object IORef)
-envLookup k kvs = post $ MaybeT $ traverse doRead kvs <&> findMap \p' -> case (k, p') of
+envLookup'
+  :: forall m. (MonadRef m, IORef ~ Ref m)
+  => Object IORef -> Environment -> MaybeT m (IORef (Pair IORef), Object IORef)
+envLookup' k kvs = MaybeT $ traverse doRead kvs <&> findMap \p' -> case (k, p') of
   (Symbol a, (p, MkPair (Symbol b, v))) | a == b -> Just (p, v)
   (Pair a, (p, MkPair (Pair b, v))) | a == b -> Just (p, v)
   _ -> Nothing
   where
-    doRead :: IORef (Pair IORef) -> EvalMonad (IORef (Pair IORef), Pair IORef)
+    doRead :: IORef (Pair IORef) -> m (IORef (Pair IORef), Pair IORef)
     doRead r = (r,) <$> readRef r
-    post :: MaybeT EvalMonad (IORef (Pair IORef), Object IORef) -> MaybeT EvalMonad (Object IORef)
-    post = flip bind \(p, v) -> use locs >>= \case
-      True:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
-      _ -> pure v
+
+envLookup :: Object IORef -> Environment -> MaybeT EvalMonad (Object IORef)
+envLookup = post .: envLookup' where
+  post :: MaybeT EvalMonad (IORef (Pair IORef), Object IORef) -> MaybeT EvalMonad (Object IORef)
+  post = flip bind \(p, v) -> use locs >>= \case
+    True:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
+    _ -> pure v
 
 vref :: Object IORef -> EvalMonad (Object IORef)
 vref s = do
