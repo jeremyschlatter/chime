@@ -118,8 +118,8 @@ readPair :: (MonadMutableRef m, r ~ Ref m) => String -> r (Pair r) -> m (Object 
 readPair _why x = readRef x >>= \case
   MkPair p -> pure p
   -- Collapse the optimized representation! :(
-  Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> _why
-  -- Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
+  -- Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> _why
+  Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
   -- Collapse the optimized representation! :(
   OptimizedFunction f -> writeRef x (MkPair (fnFallback f)) $> fnFallback f
