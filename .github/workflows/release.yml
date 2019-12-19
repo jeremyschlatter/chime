@@ -1,0 +1,42 @@
+on:
+  release:
+    types:
+    - created
+
+name: Release
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+        - os: ubuntu-latest
+          name: linux
+          ext: ''
+        - os: macos-latest
+          name: darwin
+          ext: ''
+        - os: windows-latest
+          name: windows
+          ext: '.exe'
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@master
+      - name: Install stack
+        if: matrix.os != 'ubuntu-latest'
+        run: curl -sSL https://get.haskellstack.org/ | sh
+        shell: bash
+      - name: Build binary
+        run: stack install && cp $(stack path --local-bin)/bel-exe${{ matrix.ext }} .
+        shell: bash
+      - name: Upload binary
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: bel-exe${{ matrix.ext }}
+          asset_name: bel-x86_64-${{ matrix.name }}${{ matrix.ext}}
+          asset_content_type: application/octet-stream
