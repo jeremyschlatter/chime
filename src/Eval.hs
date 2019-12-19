@@ -12,6 +12,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State hiding (get, put)
 import Data.Bitraversable
 import qualified Data.ByteString as B
+import Data.FileEmbed
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import Data.Text.Encoding
@@ -752,12 +753,13 @@ getOrCreateHistoryFile = do
 
 preludeIO :: IO EvalState
 preludeIO = do
-  let input = "reference/bel.bel"
-  es <- bel input
+  b <- builtinsIO
+  prog <- either (die . errorBundlePretty) id (parseMany "bel.bel" belDotBel)
+  (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   either
-    (\e -> interpreterBug $ "failed to parse " <> input <> ": " <> e)
+    (\e -> interpreterBug $ "failed to interpret bel.bel: " <> e)
     withNativeFns
-    es
+    (x $> s)
 
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
@@ -795,3 +797,6 @@ repl = do
   isUnexpectedEOF b = case toList (bundleErrors b) of
     [TrivialError _ (Just EndOfInput) _] -> True
     _ -> False
+
+belDotBel :: String
+belDotBel = $(embedStringFile "reference/bel.bel")

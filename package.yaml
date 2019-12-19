@@ -41,6 +41,7 @@ library:
   dependencies:
   - bytestring
   - directory
+  - file-embed
   - filepath
   - haskeline
   - lens
