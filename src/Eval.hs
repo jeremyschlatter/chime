@@ -165,10 +165,6 @@ withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) wh
     [] -> interpreterBug "unexpected empty string"
     n:ame -> Sym n ame
 
-
-setNativeFns :: EvalMonad ()
-setNativeFns = get >>= withNativeFns >>= put
-
 numAdd :: Number -> Number -> Number
 numAdd a b = (realPart a + realPart b) :+ (imagPart a + imagPart b)
 
