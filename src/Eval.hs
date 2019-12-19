@@ -744,14 +744,23 @@ getOrCreateHistoryFile = do
   createDirectoryIfMissing True dir
   pure $ dir </> "bel-repl-history.txt"
 
+preludeIO :: IO EvalState
+preludeIO = do
+  let input = "reference/bel.bel"
+  es <- bel input
+  either
+    (\e -> interpreterBug $ "failed to parse " <> input <> ": " <> e)
+    withNativeFns
+    es
+
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
 repl :: IO ()
 repl = do
   args <- getArgs
-  s <- withNativeFns =<< case args of
-    [] -> builtinsIO
+  s <- case args of
+    [] -> preludeIO
     [f] -> bel f >>= \es -> either die pure es
     _ -> die "Sorry, I can only handle up to one file"
   hist <- getOrCreateHistoryFile

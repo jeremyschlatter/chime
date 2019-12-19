@@ -17,6 +17,10 @@ main = hspec spec
 spec :: Spec
 spec = do
 
+  prelude <- runIO preludeIO
+  let evalShouldBe = evalInShouldBe prelude
+  let replTest = replTestWith prelude
+
   describe "parsing" do
 
     let is = parseThenPrintShouldBe
@@ -54,7 +58,7 @@ spec = do
   describe "evaluation" do
 
     let is = evalShouldBe
-    let isLike = evalShouldBeLike
+    let isLike = evalInShouldBeLike prelude
 
     it "evaluates examples from the spec" do
       "t" `is` "t"
@@ -64,15 +68,15 @@ spec = do
 
       ("chars" `isLike` flip properListOf \case
          Pair ref -> readPair "chars isLike" ref >>= \case
-           (Character _, s) -> string s
+           (Character _, s) -> string s $> ()
            _ -> empty
          _ -> empty
        ) "a list of pairs of (<character> . <binary representation>)"
 
       let varValList = flip properListOf \case
-                          Pair ref -> readPair "varValList isLike" ref <&> \case
-                            (Symbol _, _) -> Just ()
-                            _ -> Nothing
+                          Pair ref -> readPair "varValList isLike" ref >>= \case
+                            (Symbol _, _) -> pure ()
+                            _ -> empty
                           _ -> empty
       ("globe" `isLike` varValList) "a list of (var . val) pairs"
       ("scope" `isLike` varValList) "a list of (var . val) pairs"
@@ -133,8 +137,6 @@ spec = do
 
   describe "multi-line repl sessions" do
 
-    state <- runIO (builtinsIO >>= withNativeFns)
-    let replTest = replTestWith state
     let (>>) = replInput
     let (>) = replOutput
 
@@ -224,9 +226,7 @@ spec = do
     -- Interpret bel.bel and check that the functions it defines
     -- work as they are specified to in bellanguage.txt.
 
-    state <- runIO preludeIO
-    let is a b = evalInShouldBe a b state
-    let replTest = replTestWith state
+    let is = evalShouldBe
     let (>>) = replInput
     let (>) = replOutput
 
@@ -451,8 +451,8 @@ evalIn s state =
        pure
        x
 
-evalInShouldBe :: String -> String -> EvalState -> Expectation
-evalInShouldBe a b state =
+evalInShouldBe :: EvalState -> String -> String -> Expectation
+evalInShouldBe state a b =
   readThenRunEval "test case" a state >>= \(x, postState) ->
     either
       (\e -> if b == "<error>" then pure () else
@@ -460,22 +460,16 @@ evalInShouldBe a b state =
       (repr >=> assertEqual ("> " <> a) b)
       x
 
-debugEvalInShouldBe :: String -> String -> EvalState -> Expectation
-debugEvalInShouldBe a b state = do
+debugEvalInShouldBe :: EvalState -> String -> String -> Expectation
+debugEvalInShouldBe state a b = do
   start <- getCurrentTime
-  result <- evalInShouldBe a b state
+  result <- evalInShouldBe state a b
   end <- getCurrentTime
   putStrLn $ a <> ": " <> show (diffUTCTime end start)
   pure result
 
-eval :: String -> IO (Object IORef)
-eval s = builtinsIO >>= evalIn s
-
-evalShouldBe :: String -> String -> Expectation
-evalShouldBe a b = builtinsIO >>= evalInShouldBe a b
-
-evalShouldBeLike :: String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
-evalShouldBeLike s f desc = eval s >>= \x -> repr x >>= \rep ->
+evalInShouldBeLike :: EvalState -> String -> (Object IORef -> MaybeT IO a) -> String -> Expectation
+evalInShouldBeLike state s f desc = evalIn s state >>= \x -> repr x >>= \rep ->
   runMaybeT (f x) >>=
     maybe (assertEqual (s <> " should evaluate to") desc rep) (const $ pure ())
 
@@ -509,15 +503,3 @@ replInput = (,)
 
 replOutput :: ([(String, String)], String) -> String -> [(String, String)]
 replOutput (ios, in_) out = (in_, out) : ios
-
--- ----------------------------------------------------------------------------
---                     bel-in-bel test helpers
-
-preludeIO :: IO EvalState
-preludeIO = do
-  let input = "reference/bel.bel"
-  es <- bel input
-  either
-    (\e -> failure $ "failed to parse " <> input <> ": " <> e)
-    withNativeFns
-    es
