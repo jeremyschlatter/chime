@@ -573,7 +573,7 @@ destructure p a' = pushScope *> go p a' <* popScope where
   go paramTree arg = mcase3 (toVariable, toTypeCheck, id) paramTree \case
     Case1of3 (Symbol Nil) -> case arg of
       Symbol Nil -> pure $ Right []
-      _ -> Left <$> throwError "Too many arguments in function call"
+      _ -> Left <$> tooManyArguments
     Case1of3 v -> pushVar v arg -- pure $ Right [(v, arg)]
     Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
       Symbol Nil -> Left <$> throwError "typecheck failure"
@@ -608,6 +608,9 @@ destructure p a' = pushScope *> go p a' <* popScope where
 
 tooFewArguments :: EvalMonad (Object IORef)
 tooFewArguments = throwError "Too few arguments in function call"
+
+tooManyArguments :: EvalMonad (Object IORef)
+tooManyArguments = throwError "Too many arguments in function call"
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
