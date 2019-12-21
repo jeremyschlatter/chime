@@ -387,8 +387,10 @@ spec = do
         > "<error>"
         >> "(foo)"
         > "a"
-
+      "((fn (x y) x) 'a)" `is` "<error>"
+      "((fn ((x y)) x) 'a)" `is` "<error>"
       "((fn (x (o y x)) y) 'a)" `is` "a"
+      "((fn (f x|f) x) pair 'a)" `is` "<error>"
 
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"
