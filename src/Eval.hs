@@ -220,7 +220,7 @@ envLookup :: Object IORef -> Environment -> MaybeT EvalMonad (Object IORef)
 envLookup = post .: envLookup' where
   post :: MaybeT EvalMonad (IORef (Pair IORef), Object IORef) -> MaybeT EvalMonad (Object IORef)
   post = flip bind \(p, v) -> use locs >>= \case
-    True:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
+    Just _:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
     _ -> pure v
 
 vref :: Object IORef -> EvalMonad (Object IORef)
@@ -228,9 +228,15 @@ vref s = do
   dyns' <- use dyns
   scope' <- use $ scope._Wrapped._1
   globe' <- use globe
-  runMaybeT (envLookup s dyns' <|> envLookup s scope' <|> envLookup s globe') >>= maybe
-    (throwError . ("undefined variable: " <>) =<< repr s)
-    pure
+  locs' <- use locs
+  runMaybeT (envLookup s dyns' <|> envLookup s scope' <|> envLookup s globe') >>= flip maybe pure do
+    case locs' of
+      Just True:rest -> do
+        locs .= rest
+        ref <- newRef $ MkPair (s, Symbol Nil)
+        globe .= ref:globe'
+        Pair ref ~| "d"
+      _ -> throwError . ("undefined variable: " <>) =<< repr s
 
 toVariable :: Object IORef -> MaybeT EvalMonad (Object IORef)
 toVariable = \case
@@ -323,13 +329,7 @@ specialForms = (\f -> (formName f, f)) <$>
               c:cs -> go' (c<|acc') cs
       badParams = throwError "apply requires at least two parameters"
       in \case fa : r:est -> go (pure fa) (r:|est); _ -> badParams where
-  , Form1 "where" \x -> do
-      locs %= (True:)
-      r <- evreturn x
-      use locs >>= \case
-        True:rest -> (locs .= rest) *>
-          throwError "called where on a value that does not come from a pair"
-        _ -> pure r
+  , Form1 "where" $ formWhere False
   , Form3 "dyn" \v x y -> runMaybeT (toVariable v) >>= \case
         Just v' -> evaluate x >>= \evX -> pushDyn evX *> evreturn y <* popDyn where
           pushDyn = pushBinding dyns v'
@@ -354,15 +354,15 @@ specialForms = (\f -> (formName f, f)) <$>
         Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
 
         var:val:rest -> evaluate val >>= \val' -> runMaybeT (toVariable var) >>= \case
-          Just v -> pushBinding globe v val' *> go val' rest
-          _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
+          -- _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
+          _ -> formWhere True var >>= \ttt -> properList ttt >>= \case
             Just
              [ Pair ref
              , Sym ((\case 'a' -> Just True; 'd' -> Just False; _ -> Nothing) -> Just setCar) ""
              ] -> readPair "set" ref >>= \(car, cdr) -> do
                 writeRef ref $ MkPair $ bool (car, val') (val', cdr) setCar
                 go val' rest
-            _ -> throwError "Tried to use set on something that was neither a variable nor a pair"
+            _ -> repr ttt >>= throwError . ("Tried to use set on something that was neither a variable nor a pair: " <>)
       in go $ Symbol Nil
   -- @incomplete: this is just an approximation, since I haven't learned
   -- yet what the full scope of def is.
@@ -389,6 +389,15 @@ specialForms = (\f -> (formName f, f)) <$>
       ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
 
   ]
+
+formWhere :: Bool -> Object IORef -> EvalMonad (Object IORef)
+formWhere b x = do
+  locs %= (Just b:)
+  r <- evreturn x
+  use locs >>= \case
+    Just _:rest -> (locs .= rest) *>
+      throwError "called where on a value that does not come from a pair"
+    _ -> pure r
 
 -- Specialize (.*) and (.|) to the EvalMonad, to avoid type ambiguities.
 (~~) :: forall a b. (ToObject EvalMonad IORef a, ToObject EvalMonad IORef b)
@@ -522,7 +531,7 @@ primitives = (\p -> (primName p, p)) <$>
         -- If we are inside a "where", return the tuple and our location.
         -- Otherwise, we return the normal value.
         Pair ra -> readPair "car/cdr" ra >>= \tup -> use locs >>= \case
-          True:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
+          Just _:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
           _ -> pure $ fn tup
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
@@ -620,7 +629,7 @@ with l m e = push *> m <* pop where
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate = flip (with locs) False . evreturn
+evaluate = flip (with locs) Nothing . evreturn
 
 evreturn :: Object IORef -> EvalMonad (Object IORef)
 evreturn expr = {-bind (repr expr) $ with debug $-} case expr of

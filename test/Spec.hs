@@ -362,12 +362,12 @@ spec = do
       "(set \\a 5)" `is` "<error>"
       "(quote a b)" `is` "<error>"
       "(let x 'a (where x))" `is` "((x . a) d)"
-
---       [r|
---       (dyn x 'a
---         (do (set x 'b)
---             x))
---       |] `is` "b"
+      -- changed from the spec: `x` -> `foo`, since `do` has a local var called `x`
+      [r|
+      (dyn foo 'a
+        (do (set foo 'b)
+            foo))
+      |] `is` "b"
 
       "((fn (x (o y x)) y) 'a)" `is` "a"
 

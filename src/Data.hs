@@ -50,7 +50,7 @@ type EvalMonad = ExceptT Error (ContT (Either Error (Object IORef)) (StateT Eval
 data EvalState = EvalState
  { _globe :: Environment
  , _scope :: NonEmpty Environment
- , _locs :: [Bool]
+ , _locs :: [Maybe Bool]
  , _dyns :: Environment
  , _debug :: [String]
  , _vmark :: IORef (Pair IORef)
