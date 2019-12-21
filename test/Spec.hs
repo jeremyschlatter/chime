@@ -368,6 +368,12 @@ spec = do
         (do (set foo 'b)
             foo))
       |] `is` "b"
+      "(3 '(a b c d))" `is` "c"
+      [r|
+      (let x '(a b c d)
+        (set (3 x) 'z)
+        x)
+      |] `is` "(a b z d)"
 
       "((fn (x (o y x)) y) 'a)" `is` "a"
 

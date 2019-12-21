@@ -117,6 +117,22 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
           Just l -> go (accum <> l) xs
       in go []
+  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [] -> tooFewArguments
+      [_] -> tooFewArguments
+      _:_:_:_ -> tooManyArguments
+      [mn, mxs] -> runMaybeT (number mn) >>= \case
+        Just (((numerator &&& denominator) -> (n', 1)) :+ 0) | n' >= 0 -> let
+          go n = \case
+            Pair ref -> readPair "nth" ref >>= \(car, cdr) ->
+              if n == 1
+              then use locs >>= \case
+                Just _:rest -> (locs .= rest) *> (Pair ref ~| Sym @IORef 'a' "")
+                _ -> pure car
+              else go (n - 1) cdr
+            _ -> typecheckFailure
+          in go n' mxs
+        _ -> typecheckFailure
 
 --   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
 --       [x] -> do
@@ -262,11 +278,20 @@ macro = \case
   [Sym 'l' "it", Sym 'm' "ac", m] -> MaybeT (properList m) >>= function
   _ -> empty
 
+virfn :: [Object IORef] -> MaybeT EvalMonad Closure
+virfn = \case
+  Sym 'l' "it" : f : _ -> use globe >>= envLookup' (Sym 'v' "irfns") >>=
+    flip properListOf env . snd >>= envLookup' f >>= MaybeT . properList . snd >>= function
+  _ -> empty
+  where
+    env = \case Pair p -> pure p; _ -> empty
+
 data Operator
   = Primitive Primitive
   | SpecialForm SpecialForm
   | Macro Closure
   | Closure Closure
+  | Virfn Closure
   | TheContinuation (Object IORef -> EvalMonad (Object IORef))
   | TheOptimizedFunction (OptimizedFunction IORef)
 
@@ -557,7 +582,8 @@ operator = \case
       OptimizedFunction f -> pure $ Just $ TheOptimizedFunction f
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
-        Just (toList -> l) -> runMaybeT $ (Closure <$> function l) <|> (Macro <$> macro l)
+        Just (toList -> l) -> runMaybeT $
+          (Closure <$> function l) <|> (Macro <$> macro l) <|> (Virfn <$> virfn l)
         _ -> pure Nothing
     _ -> pure Nothing
 
@@ -585,7 +611,7 @@ destructure p a' = pushScope *> go p a' <* popScope where
       _ -> Left <$> tooManyArguments
     Case1of3 v -> pushVar v arg -- pure $ Right [(v, arg)]
     Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
-      Symbol Nil -> Left <$> throwError "typecheck failure"
+      Symbol Nil -> Left <$> typecheckFailure
       _ -> go v arg
     -- @incomplete: Show more information about the function
     Case3of3 (Character _) -> fmap Left $ throwError $
@@ -620,6 +646,9 @@ tooFewArguments = throwError "Too few arguments in function call"
 
 tooManyArguments :: EvalMonad (Object IORef)
 tooManyArguments = throwError "Too many arguments in function call"
+
+typecheckFailure :: EvalMonad (Object IORef)
+typecheckFailure = throwError "typecheck failure"
 
 with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
 with l m e = push *> m <* pop where
@@ -706,6 +735,10 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
                 (\bound -> withScope (bound <> env) (evreturn body))
           Macro (MkClosure env params body) ->
             destructure params argTree >>=
+              either pure
+                (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+          Virfn (MkClosure env params body) ->
+            (op ~| argTree) >>= destructure params >>=
               either pure
                 (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
 
