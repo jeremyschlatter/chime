@@ -374,9 +374,8 @@ spec = do
         (set (3 x) 'z)
         x)
       |] `is` "(a b z d)"
-
-      "((fn (x (o y x)) y) 'a)" `is` "a"
-
+      "(let x '(a b c) (where (car x)))" `is` "((a b c) a)"
+      "(join)" `is` "(nil)"
       replTest $ []
         >> "(def consa ((t xs pair)) (cons 'a xs))"
         > "..."
@@ -388,6 +387,8 @@ spec = do
         > "<error>"
         >> "(foo)"
         > "a"
+
+      "((fn (x (o y x)) y) 'a)" `is` "a"
 
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"
