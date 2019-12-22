@@ -855,7 +855,7 @@ repl = do
         Left err -> if isUnexpectedEOF err
                     then go (input <> "\n") s
                     else outputStrLn (red (errorBundlePretty err)) *> go "" s
-        Right obj -> do
+        Right obj -> handleInterrupt (newline *> newline *> go "" s) do
           (x, s') <- lift $ runEval (obj >>= evaluate) s
           either (pure . red) repr x >>= outputStrLn
           newline
