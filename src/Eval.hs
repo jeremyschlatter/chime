@@ -175,6 +175,12 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
                 (M.parse (runIdentity . refSwap <$> (Parse.number <* M.eof)) "" s)
             _ -> typecheckFailure
         _:_:_:_ -> tooManyArguments
+  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [] -> tooFewArguments
+      _:_:_ -> tooManyArguments
+      [x] -> runMaybeT (number x) >>= \case
+        Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
+        _ -> typecheckFailure
 
   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
       [x] -> do
