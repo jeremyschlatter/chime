@@ -7,9 +7,9 @@ import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
 import Control.Monad.Except hiding (throwError)
 import qualified Control.Monad.Except as E
-import Control.Monad.State.Class (MonadState, get, put)
+import Control.Monad.State.Class (MonadState)
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.State hiding (get, put)
+import Control.Monad.Trans.State
 import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.FileEmbed
@@ -364,9 +364,9 @@ specialForms = (\f -> (formName f, f)) <$>
         _ -> repr v >>= \rep -> throwError $ "dyn requires a variable as its first argument. "
           <> rep <> " is not a variable."
   , Form2 "after" \x y -> do
-      preX <- get
-      catchError (void $ evaluate x) $ const $ put preX
-      evreturn y
+      x' <- catchError (Right <$> evreturn x) (pure . Left)
+      _ <- evaluate y
+      either E.throwError pure x'
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
       listToObject [pure f, pure c] >>= evreturn

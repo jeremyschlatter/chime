@@ -122,7 +122,6 @@ spec = do
       "(if nil 'a  t   'b 'c)" `is` "b"
       "(if nil 'a  nil 'b 'c)" `is` "c"
       "(where (cdr '(a b c)))" `is` "((a b c) d)" -- based on (where (cdr x)) from the spec
-      "(after a 'b)" `is` "b"
       "((lit clo nil (x) (join x 'b)) 'a)" `is` "(a . b)"
       "(mac n p e)" `is` "(lit mac (lit clo nil p e))"
       "'(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
@@ -138,6 +137,12 @@ spec = do
       > "a"
       >> "x"
       > "a"
+
+    it "implements after" $ replTest $ []
+      >> "(after a (set x 'cleaned-up))"
+      > "<error>"
+      >> "x"
+      > "cleaned-up"
 
     it "implements xar and xdr" $ replTest $ []
       >> "(set x '(a . b))"
