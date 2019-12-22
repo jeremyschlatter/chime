@@ -17,7 +17,7 @@ import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import qualified Data.Text as T
 import Data.Text.Encoding
--- import Data.Time.Clock
+import Data.Time.Clock
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
@@ -176,15 +176,14 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
             _ -> typecheckFailure
         _:_:_:_ -> tooManyArguments
 
---   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
---       [x] -> do
---         start <- liftIO getCurrentTime
---         result <- evaluate x
---         end <- liftIO getCurrentTime
---         liftIO $ putStrLn $ show $ diffUTCTime end start
---         pure result
---       _ -> throwError "time requires exactly one argument"
-
+  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [x] -> do
+        start <- liftIO getCurrentTime
+        result <- evaluate x
+        end <- liftIO getCurrentTime
+        liftIO $ putStrLn $ show $ diffUTCTime end start
+        pure result
+      _ -> throwError "time requires exactly one argument"
   ]
 
 nativeMacros :: [(String, OptimizedFunction IORef)]
@@ -220,7 +219,10 @@ withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m 
 withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
-    Nothing -> interpreterBug $ nm <> " was not present in the global state"
+    Nothing -> case nm of
+      "time" -> (fmap Pair . newRef . OptimizedFunction) f >>= \x ->
+        (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
+      _ -> interpreterBug $ nm <> " was not present in the global state"
     Just (_, p) -> case p of
       Pair ref -> readPair "native fns" ref >>= \n ->
         writeRef ref (OptimizedFunction (f {fnFallback = n})) $> s
