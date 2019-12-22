@@ -26,7 +26,14 @@ data Pair r
   | Continuation (Object IORef -> EvalMonad (Object IORef))
   | OptimizedFunction (OptimizedFunction r)
 
-data Stream = MkStream { streamHandle :: Handle, streamBuf :: Word8, streamPlace :: Int }
+data Direction = In | Out deriving Eq
+
+data Stream = MkStream
+  { streamHandle :: Handle
+  , streamDirection :: Direction
+  , streamBuf :: Word8
+  , streamPlace :: Int
+  }
 
 data OptimizedFunction r = MkOptimizedFunction
   { fnBody :: [Object IORef] -> EvalMonad (Object IORef)
@@ -59,14 +66,14 @@ data EvalState = EvalState
  }
 $(makeLenses ''EvalState)
 
-newStream :: (MonadRef m, Ref m ~ IORef) => Handle -> m (IORef Stream)
-newStream h = newRef (MkStream h 0 0)
+newStream :: (MonadRef m, Ref m ~ IORef) => Direction -> Handle -> m (IORef Stream)
+newStream d h = newRef (MkStream h d 0 7)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
 emptyState = EvalState [] (pure []) [] [] []
   <$> newRef (MkPair (Symbol Nil, Symbol Nil))
-  <*> newStream stdin
-  <*> newStream stdout
+  <*> newStream In stdin
+  <*> newStream Out stdout
 
 
 -- -----------------------------------------------------------------------

@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude hiding (evaluate, getEnv, head, tail, mask)
+import BasePrelude as P hiding (evaluate, getEnv, head, tail, mask)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
@@ -38,7 +38,7 @@ builtins = (globe <~) $ traverse
   , ("outs", sym "nil")
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
-              toObject . bool '0' '1' . testBit w <$> [0..7]
+              toObject . bool '0' '1' . testBit w <$> P.reverse [0..7]
       in listToObject $ flip fmap [0..127] \i ->
            chr i .* (
             listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
@@ -459,8 +459,8 @@ primitives = (\p -> (primName p, p)) <$>
   [ Prim2 "id" $ pure . fromBool .: curry \case
       (Symbol a, Symbol b) -> a == b
       (Character a, Character b) -> a == b
-      (Stream _, Stream _) -> False -- @incomplete: what should this be?
-      (Pair ra, Pair rb) -> ra == rb
+      (Stream a, Stream b) -> a == b
+      (Pair a, Pair b) -> a == b
       _ -> False
   , Prim2 "join" (.*)
   , carAndCdr "car" fst 'a'
@@ -484,42 +484,43 @@ primitives = (\p -> (primName p, p)) <$>
         <> rep <> " is not a symbol."
   , Prim2 "wrb" \b' s' -> do
       let wBit = case b' of
-                   Character (MkCharacter '0') -> Just False
-                   Character (MkCharacter '1') -> Just True
-                   _ -> Nothing
+            Character (MkCharacter '0') -> Just False
+            Character (MkCharacter '1') -> Just True
+            _ -> Nothing
       stream <- runMaybeT @EvalMonad $ case s' of
         Stream r -> (r,) <$> readRef r
         Symbol Nil -> use outs >>= \r -> (r,) <$> readRef r
         _ -> empty
       case (wBit, stream) of
-        (Just b, Just (ref, MkStream h buf idx)) -> let
+        (Just b, Just (ref, MkStream h d buf idx)) -> let
           newBuf = if b then setBit buf idx else buf
-          newIdx = (idx + 1) `mod` 8
+          newIdx = (idx + 7) `mod` 8
           in Symbol Nil <$
-            if newIdx == 0
+            if newIdx == 7
             then do
-              lift $ lift $ lift $ B.hPut h (B.singleton newBuf)
-              writeRef ref $ MkStream h 0 newIdx
+              liftIO $ putStrLn (show newBuf)
+              liftIO $ B.hPut h (B.singleton newBuf)
+              writeRef ref $ MkStream h d 0 newIdx
             else
-              writeRef ref $ MkStream h newBuf newIdx
+              writeRef ref $ MkStream h d newBuf newIdx
         _ -> throwError "invalid arguments to wrb"
   , Prim1 "rdb" let
       -- rdb' = (flip bind (\x -> repr x >>= \r -> traceM r $> x)) . rdb
-      rdb ref = readRef ref >>= \(MkStream h buf idx) ->
-        let readBit x = Character $ MkCharacter $ bool '0' '1' $ testBit x (7 - idx)
-        in if idx == 0
+      rdb ref = readRef ref >>= \(MkStream h d buf idx) ->
+        let readBit x = Character $ MkCharacter $ bool '0' '1' $ testBit x idx
+        in if idx == 7
            then do
              -- @incomplete: this blocks, and rdb should not block
              -- Fixing this will be difficult because the underlying Haskell interface
              -- does not support a non-blocking read that also reports EOF.
-             b <- lift $ lift $ lift $ B.hGet h 1
+             b <- liftIO $ B.hGet h 1
              case B.unpack b of
                [] -> pure $ Sym 'e' "of"
                -- [] -> pure $ Symbol Nil
-               [x] -> writeRef ref (MkStream h x 1) $> readBit x
+               [x] -> writeRef ref (MkStream h d x 6) $> readBit x
                _ -> interpreterBug
                  "Haskell's Data.ByteString.hGet returned more bytes than it promised"
-           else writeRef ref (MkStream h buf ((idx + 1) `mod` 8)) $> readBit buf
+           else writeRef ref (MkStream h d buf ((idx + 7) `mod` 8)) $> readBit buf
       in \case
         Stream ref -> rdb ref
         Symbol Nil -> use ins >>= rdb
@@ -529,16 +530,16 @@ primitives = (\p -> (primName p, p)) <$>
         Just path,
         Symbol (
           (\s -> case toList $ unSymbol s of
-                    "in" -> Just ReadMode
-                    "out" -> Just WriteMode
+                    "in" -> Just (ReadMode, In)
+                    "out" -> Just (WriteMode, Out)
                     _ -> Nothing
-          ) -> Just mode)
+          ) -> Just (mode, dir))
        ) -> lift $ lift $ lift $ openFile (unCharacter <$> path) mode >>= \h ->
-         Stream <$> newStream h
+         Stream <$> newStream dir h
       _ -> throwError "invalid arguments to ops"
   , Prim1 "cls" \case
-      Stream r -> readRef r >>= \(MkStream h b m) -> lift $ lift $ lift do
-        if m == 0
+      Stream r -> readRef r >>= \(MkStream h d b m) -> lift $ lift $ lift do
+        if m == 7 || d == In
         then pure ()
         -- flush any bits left in the buffer
         else B.hPut h (B.singleton b)
