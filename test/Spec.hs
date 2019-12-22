@@ -47,6 +47,8 @@ spec = do
       "(lit num (+ (t t) (t t t)) (+ () (t)))" `is` "2/3"
       "a.b" `is` "(a b)"
       "a!b" `is` "(a 'b)"
+      "c|isa!cont" `is` "(t c (isa 'cont))"
+      "(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
 
     it "parses and prints other examples" do
       "( )" `is` "nil"
@@ -97,7 +99,6 @@ spec = do
       "(apply join 'a '(b))" `is` "(a . b)"
       "(dyn x 'z (join x 'b))" `is` "(z . b)"
       "((lit clo ((x . a)) (y) (join x y)) 'b)" `is` "(a . b)"
-
       "'for|2" `is` "(t for 2)"
       -- @consider: the Bel language guide prints this as "(a (quote b) c)"
       -- I prefer the version here, but is that spec-compliant? Same elsewhere.
@@ -391,15 +392,267 @@ spec = do
       "((fn ((x y)) x) 'a)" `is` "<error>"
       "((fn (x (o y x)) y) 'a)" `is` "a"
       "((fn (f x|f) x) pair 'a)" `is` "<error>"
-
+      "(2 '(a b c))" `is` "b"
+      "(map function (list car append 'foo))" `is` "(prim clo nil)"
+      "(map (con 'yo) '(a b c))" `is` "(yo yo yo)"
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"
-
+      "(map ~cdr '((a) (a b c) (a b)))" `is` "(t nil nil)"
+      "(2:or nil '(a b c))" `is` "b"
+      -- This differs from the Bel language guide, which incorrectly shows
+      -- (nil t nil) as the result here.
+      [r|(map ((combine and) car cdr)
+              '((a . nil) (a . b) (nil . b)))|] `is` "(nil b nil)"
+      "((cand pair cdr) '(a b))" `is` "(b)"
+      "((cor char pair) 'a)" `is` "nil"
+      [r|(map (upon '(a b c))
+              (list car cadr cdr))|] `is` "(a b (b c))"
+      "(fuse [list 'a _] '(1 2 3))" `is` "(a 1 a 2 a 3)"
+      [r|(map [pcase _
+                no   'empty
+                atom 'atom
+                     'pair]
+              '(a nil '(b c)))|] `is` "(atom empty pair)"
+      "(match '(a (b) c d) (list 'a pair 'c t))" `is` "t"
+      "(split (is \\a) \"frantic\")" `is` "(\"fr\" \"antic\")"
+      -- @incomplete: parse numbers starting with .
+      -- "(+ .05 (/ 19 20))" `is` "1"
+      "(len \"foo\")" `is` "3"
+      "(pos \\a \"ask\")" `is` "1"
+      -- @performance: this test takes 1 second
+      -- "(map charn \"abc\")" `is` "(97 98 99)"
+      "(> 3/4 2/3)" `is` "t"
+      -- @performance: optimize non-numeric comparisons. this test
+      -- takes 13 seconds.
+      -- "(< 'apple 'apply)" `is` "t"
+      "((rfn foo (x) (if (no x) 0 (inc:foo:cdr x))) '(a b c))" `is` "3"
+      "((afn (x) (if (no x) 0 (inc:self:cdr x))) '(a b c))" `is` "3"
+      replTest $ []
+        >> "(set x '(nil nil a b c))"
+        > "(nil nil a b c)"
+        >> "(wait (fn () (pop x)))"
+        > "a"
+        >> "x"
+        > "(b c)"
+      -- @performance: this test takes one second. optimize pint.
+      -- "(runs pint '(1 1 0 0 0 1 1 1 0))" `is` "((1 1) (0 0 0) (1 1 1) (0))"
+      "(tokens \"the age of the essay\")"
+        `is` "(\"the\" \"age\" \"of\" \"the\" \"essay\")"
+      "(dups \"abracadabra\")" `is` "\"abr\""
+      "(consif (cadr '(a)) '(x y))" `is` "(x y)"
+      "(check (car '(1 2 3)) odd)" `is` "1"
+      "(check (car '(1 2 3)) even)" `is` "nil"
+      "(check (car '(1 2 3)) even 2)" `is` "2"
+      [r|(let x 'a
+           (withs (x 'b
+                   y x)
+             y))
+      |] `is` "b"
+      "(tail [caris _ \\-] \"non-nil\")" `is` "\"-nil\""
+      "(dock '(a b c))" `is` "(a b)"
+      "(lastcdr '(a b c))" `is` "(c)"
+      "(last '(a b c))" `is` "c"
+      replTest $ []
+        >> "(set x '(a b c) y x)"
+        > "(a b c)"
+        >> "(set (cadr x) 'z)"
+        > "z"
+        >> "y"
+        > "(a z c)"
+        >> "(push 'hello x)"
+        > "(hello a z c)"
+        >> "x"
+        > "(hello a z c)"
+        >> "y"
+        > "(a z c)"
+      replTest $ []
+        >> "(set x '((a)) y x)"
+        > "((a))"
+        >> "y"
+        > "((a))"
+        >> "(push 'hello (car x))"
+        > "(hello a)"
+        >> "y"
+        > "((hello a))"
+      replTest $ []
+        >> "(set x (newq))"
+        > "(nil)"
+        >> "(enq 'a x)"
+        > "((a))"
+        >> "(enq 'b x)"
+        > "((a b))"
+        >> "(deq x)"
+        > "a"
+        >> "x"
+        > "((b))"
       [r|
       (let x '(a b c)
         (zap cdr x)
         x)
       |] `is` "(b c)"
+      [r|
+      (let x '(1 2 3)
+          (++ (car x) 10)
+          (-- (cadr x))
+          x)
+      |] `is` "(11 1 3)"
+      [r|
+      (let x '(a b c)
+        (push 'z x)
+        (pull 'c x)
+        x)
+      |] `is` "(z a b)"
+      [r|
+      (let x '(7 3 0 9 2 4 1)
+        (pull 4 x >=)
+         x)
+      |] `is` "(3 0 2 1)"
+      [r|
+      (let s '("abc")
+        (list (peek s) (peek s)))
+      |] `is` "\"aa\""
+      [r|
+      (let s '("abc")
+        (list (rdc s) (rdc s)))
+      |] `is` "\"ab\""
+      "(digit \\a)" `is` "nil"
+      -- spec bug: this example from the spec is incorrect.
+      -- the actual output is on the next line.
+      -- "(digit \\a i16)" `is` "t"
+      "(digit \\a i16)" `is` "\"a9876543210\""
+
+      -- @incomplete: print and read shared pair syntax
+      -- > (let x '(a)
+      --     (list x x))
+      -- (#1=(a) #1)
+      -- > (set x '(a #1=(b) #1 c))
+      -- (a #1=(b) #1 c)
+      -- > (id (2 x) (3 x))
+      -- t
+
+      -- @consider: should the output say (quote b) instead?
+      -- @performance: this test takes 1.5 seconds
+      -- "(read '(\"[cons _ 'b]\"))" `is` "(fn (_) (cons _ 'b))"
+
+      -- @incomplete: the next two examples do not work yet
+      -- [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
+      -- [r|(mem \\ "foo\"bar")|] `is` "nil"
+
+      -- @incomplete: parse vertical bar delimiters
+      -- "'¦foo bar¦" `is` "¦foo bar¦"
+
+      -- @incomplete: parse a leading dot as an implicit upon
+      -- "(let x '(a . b) (map .x (list car cdr)))" `is` "(a b)"
+
+      "(let x '(a b c) `,@x)" `is` "<error>"
+      "(let x '(b c) `(a . ,@x))" `is` "<error>"
+
+      -- @incomplete: this example does not parse
+      -- "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
+
+      "(bqex '(bquote (comma (comma x))) nil)"
+        `is` "((list 'bquote (list 'comma x)) t)"
+      "(let x '(a b c) `,,x)" `is` "<error>"
+      "1.5" `is` "3/2"
+      "\"foo\"" `is` "\"foo\""
+
+      -- @incomplete: uncomment when shared pair printing is implemented
+      -- "(let x '(a b c) (list x x))" `is` "(#1=(a b c) #1)"
+
+      "(cons 'a 5)" `is` "(a . 5)"
+
+      -- @incomplete: uncomment when shared pair printing is implemented
+      -- "(let x '(a b c) (cons x x))" `is` "(#1=(a b c) . #1)"
+
+      "(append '(a b c) 5)" `is` "(a b c . 5)"
+
+      -- @incomplete: uncomment when tests capture stdout
+      -- "(with (x \"foo\" y 'bar) (prn 'x x 'y y))"
+        -- `is` "x \"foo\" y bar\nbar"
+
+      -- @performance: this test takes 1.5 seconds
+      -- "(drop 2 '(a b c d e))" `is` "(c d e)"
+      "(nth 2 '(a b c d e))" `is` "b"
+      "(2 '(a b c))" `is` "b"
+      "(nchar 65)" `is` "\\A"
+      -- @performance: this test takes 1.5 seconds
+      -- "(first 2 '(a b c d e))" `is` "(a b)"
+      [r|
+      (catch
+        (throw 'a)
+        (/ 1 0))
+      |] `is` "a"
+      -- @performance: the next two tests take 3-4 seconds each
+      -- "(cut \"foobar\" 2 4)" `is` "\"oob\""
+      -- "(cut \"foobar\" 2 -1)" `is` "\"ooba\""
+      [r|
+      (let x nil
+           (each y '(a b c)
+             (push y x))
+           x)
+      |] `is` "(c b a)"
+      "((flip -) 1 10)" `is` "9"
+      "((part cons 'a) 'b)" `is` "(a . b)"
+      "((trap cons 'a) 'b)" `is` "(b . a)"
+      -- @performance: this takes about 0.3 seconds
+      "(map (upon 3.5) (list floor ceil))" `is` "(3 4)"
+      -- @performance: this takes about 1.5 seconds
+      -- "(mod 17 3)" `is` "2"
+
+      -- @incomplete: uncomment these when tests capture stdout
+      -- [r|
+      -- (let x '(a b c)
+      --   (whilet y (pop x)
+      --     (pr y))
+      --   x)
+      -- |] `is` "abcnil"
+      -- "(loop x 1 (+ x 1) (< x 5) (pr x))" `is` "1234nil"
+      -- "(let x '(a b c) (while (pop x) (pr x)))" `is` "(b c)(c)nilnil"
+      -- [r|
+      -- (let x '(a b c d e)
+      --   (til y (pop x) (= y 'c)
+      --     (pr y))
+      --   x)
+      -- |] `is` "ab(d e)"
+      -- "(for x 1 10 (pr x))" `is` "12345678910nil"
+      -- "(repeat 3 (pr 'bang))" `is` "bangbangbangnil"
+      [r|
+      (let x '(a b c d e)
+        (poll (pop x) is!c)
+        x)
+      |] `is` "(d e)"
+      "(accum a (map (cand odd a) '(1 2 3 4 5)))" `is` "(1 3 5)"
+
+      -- @consider: this is a non-deterministic test. how should I handle it?
+      -- "(nof 10 (rand 10))" `is` "(9 7 6 2 9 1 7 0 0 0)"
+
+      "(let x '(a b c d e) (drain (pop x)))" `is` "(a b c d e)"
+      "(let x '(a b c d e) (drain (pop x) is!d))" `is` "(a b c)"
+      -- @performance: this test takes about half a second
+      -- "(^w 2+3i 3)" `is` "-46+9i"
+      [r|
+      (let x '(a b c d e)
+        (wipe 2.x 4.x)
+        x)
+      |] `is` "(a nil c nil e)"
+      "(let x '(a b c) (list (pop x) x))" `is` "(a (b c))"
+      "(let x '(a b c) (pop (cdr x)) x)" `is` "(a c)"
+      "(let x '(1 2 3 4 5) (clean odd x) x)" `is` "(2 4)"
+      "(let (x y z) '(a b c) (swap x y z) (list x y z))" `is` "(b c a)"
+      -- @performance: this test takes ~0.8 seconds to run
+      -- "(let x '(a b c d e) (swap 2.x 4.x) x)" `is` "(a d c b e)"
+      "(adjoin 'a '(a b c))" `is` "(a b c)"
+      "(adjoin 'z '(a b c))" `is` "(z a b c)"
+      [r|
+      (let x '(a b c d e)
+        (pushnew 'a x)
+        (pushnew 'z x)
+        x)
+      |] `is` "(z a b c d e)"
+      -- @performance: this takes ~0.25 seconds
+      "(dedup \"abracadabra\")" `is` "\"abrcd\""
+      -- @performance: this takes ~1 second
+      -- "(insert < 3 '(1 2 4 5))" `is` "(1 2 3 4 5)"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
@@ -420,6 +673,13 @@ spec = do
       "(~atom 'a)" `is` "nil"
       "(onerr 'oops (car '(a b)))" `is` "a"
       "(map no:no:literal (list nil \"foo\" car))" `is` "(t t t)"
+      "((of + car) '(1 a) '(2 b) '(3 c))" `is` "6"
+      "(pairwise id '(a a a))" `is` "t"
+      replTest $ []
+        >> "(set fnd only.car:some)"
+        > "..."
+        >> "(fnd [= (car _) \\a] '(\"pear\" \"apple\" \"grape\"))"
+        > "\"apple\""
 
 
 -- ----------------------------------------------------------------------------
