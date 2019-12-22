@@ -653,6 +653,17 @@ spec = do
       "(dedup \"abracadabra\")" `is` "\"abrcd\""
       -- @performance: this takes ~1 second
       -- "(insert < 3 '(1 2 4 5))" `is` "(1 2 3 4 5)"
+      -- @performance: this takes ~2 seconds
+      -- "(sort < '(5 1 3 2 4))" `is` "(1 2 3 4 5)"
+      "(sort (of > len) '((a b) (c) (d e) (f)))" `is` "((a b) (d e) (c) (f))"
+      "(best > '(5 1 3 2 4))" `is` "5"
+      "(best (of > len) '((a) (b c) (d e) (f)))" `is` "(b c)"
+      "(max 3 7 2 1)" `is` "7"
+      "(min 3 7 2 1)" `is` "1"
+      "(map upon.3 (list even odd))" `is` "(nil t)"
+      -- @performance: this takes ~2.5 seconds
+      -- "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))"
+        -- `is` "(-2 -2 -1 1 2 2)"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
@@ -680,6 +691,8 @@ spec = do
         > "..."
         >> "(fnd [= (car _) \\a] '(\"pear\" \"apple\" \"grape\"))"
         > "\"apple\""
+
+    -- @incomplete: add tests for code that touches the filesystem
 
 
 -- ----------------------------------------------------------------------------
