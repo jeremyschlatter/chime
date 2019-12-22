@@ -22,11 +22,13 @@ import System.Console.Haskeline
 import System.Directory
 import System.FilePath
 import System.IO
+import qualified Text.Megaparsec as M
 import Text.Megaparsec.Error
 
 import Common
 import Data
 import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
+import qualified Parse
 
 builtins :: EvalMonad ()
 builtins = (globe <~) $ traverse
@@ -158,6 +160,21 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
+  , ("parsenum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      symT = \case
+        (Sym 't' "") -> pure ()
+        _ -> empty
+      in \case
+        [] -> tooFewArguments
+        [_] -> tooFewArguments
+        [cs, base] -> bisequence
+          (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
+            -- @incomplete: handle bases other than 10
+            (Just s, Just (length -> n)) | n == 10 ->
+              either (throwError . errorBundlePretty) id
+                (M.parse (runIdentity . refSwap <$> (Parse.number <* M.eof)) "" s)
+            _ -> typecheckFailure
+        _:_:_:_ -> tooManyArguments
 
 --   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
 --       [x] -> do

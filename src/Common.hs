@@ -21,6 +21,10 @@ infixl 1 <&&>
 (<$$>) = fmap . fmap
 infixl 4 <$$>
 
+(<$$$>) :: (Functor f, Functor g, Functor h) => (a -> b) -> f (g (h a)) -> f (g (h b))
+(<$$$>) = fmap . fmap . fmap
+infixl 4 <$$$>
+
 type String1 = NonEmpty Char
 
 unfinished :: a
