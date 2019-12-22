@@ -15,6 +15,7 @@ import qualified Data.ByteString as B
 import Data.FileEmbed
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
+import qualified Data.Text as T
 import Data.Text.Encoding
 -- import Data.Time.Clock
 import System.Console.Haskeline
@@ -133,6 +134,30 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
             _ -> typecheckFailure
           in go n' mxs
         _ -> typecheckFailure
+  , ("bitc",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
+      nextByte :: Stream -> EvalMonad (Either (Object IORef) Word8)
+      nextByte (MkStream h _ _ idx) =
+        if idx == 7
+        then liftIO (B.unpack <$> B.hGet h 1) <&> \case
+          [] -> Left $ Sym 'e' "of"
+          [x] -> Right x
+          _ -> interpreterBug
+            "Haskell's Data.ByteString.hGet returned more bytes than it promised"
+        else Left <$> throwError "bitc called on byte-unaligned stream"
+      readStream = \case
+        Stream s -> readRef s >>= go B.empty
+        _ -> typecheckFailure
+      go bs s = nextByte s >>= either pure (go' s . flip B.cons bs)
+      go' :: Stream -> B.ByteString -> EvalMonad (Object IORef)
+      go' s bs =
+        either
+          (const $ go bs s)
+          (pure . Character . MkCharacter . T.head)
+          (decodeUtf8' bs)
+      in \case
+        [] -> evaluate (Sym 'i' "ns") >>= readStream
+        [x] -> readStream x
+        _ -> tooManyArguments
 
 --   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
 --       [x] -> do
