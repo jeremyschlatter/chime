@@ -83,6 +83,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       [a] -> (0 :+ 0) `numSub` a
       a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
   , ("*",) $ numFnN $ foldr numMul (1 :+ 0)
+  , ("recip",) $ numFn1 $ \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
   , ("odd",) $ numFn1 \case
       (n :+ 0) -> denominator n == 1 && odd (numerator n)
       _ -> False
