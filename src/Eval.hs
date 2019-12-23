@@ -90,18 +90,11 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
   , ("even",) $ numFn1 \case
       (n :+ 0) -> denominator n == 1 && even (numerator n)
       _ -> False
-  , (">",) $ numFnN let
-      go = \case
-        [] -> True
-        [_] -> True
-        (ar :+ ai) : b@(br :+ bi) : cs -> ar > br && ai >= bi && go (b:cs)
-      in go
-  , (">=",) $ numFnN let
-      go = \case
-        [] -> True
-        [_] -> True
-        (ar :+ ai) : b@(br :+ bi) : cs -> ar >= br && ai >= bi && go (b:cs)
-      in go
+  -- @incomplete: compare other things, too
+  , (">",) $ numComp (>) (>=)
+  , (">=",) $ numComp (>=) (>=)
+  , ("<",) $ numComp (<) (<=)
+  , ("<=",) $ numComp (<=) (<=)
   , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go = \case
         [] -> pure $ Symbol Nil
@@ -270,6 +263,14 @@ numSub a b = (realPart a - realPart b) :+ (imagPart a - imagPart b)
 
 numMul :: Number -> Number -> Number
 numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
+
+numComp
+  :: (Rational -> Rational -> Bool) -> (Rational -> Rational -> Bool) -> OptimizedFunction IORef
+numComp r i = numFnN go where
+  go = \case
+    [] -> True
+    [_] -> True
+    (ar :+ ai) : b@(br :+ bi) : cs -> r ar br && i ai bi && go (b:cs)
 
 -- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
 numFnN
