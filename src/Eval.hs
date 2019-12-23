@@ -548,7 +548,6 @@ primitives = (\p -> (primName p, p)) <$>
           in Symbol Nil <$
             if newIdx == 7
             then do
-              liftIO $ putStrLn (show newBuf)
               liftIO $ B.hPut h (B.singleton newBuf)
               writeRef ref $ MkStream h d 0 newIdx
             else
