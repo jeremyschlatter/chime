@@ -609,6 +609,7 @@ primitives = (\p -> (primName p, p)) <$>
                     "out" -> Just (WriteMode, Out)
                     _ -> Nothing
           ) -> Just (mode, dir))
+       -- @incomplete: catch IO errors and lift them to Bel errors
        ) -> lift $ lift $ lift $ openFile (unCharacter <$> path) mode >>= \h ->
          Stream <$> newStream dir h
       _ -> throwError "invalid arguments to ops"
