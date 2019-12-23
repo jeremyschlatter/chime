@@ -181,6 +181,23 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       [x] -> runMaybeT (number x) >>= \case
         Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
         _ -> typecheckFailure
+  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [n] -> (runMaybeT (number n)) <&> \case
+        Just _ -> Sym 't' ""
+        _ -> Symbol Nil
+      _ -> throwError "wrong number of arguments"
+  , ("prnum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [r, i, s] -> "lit" ~~ "num" ~~ r ~| i >>=
+        bisequence . (toStream Out s,) . runMaybeT . number >>= \case
+          (Just ref, Just n) -> readRef ref >>= \case
+            MkStream h _ _ 7 -> (liftIO $ hPutStr h $ showNumber n) $> Symbol Nil
+            -- @incomplete: allow byte-misaligned writes
+            _ -> throwError $
+              "Tried to call prnum after writing n bits to this stream, where n % 8 != 0\n"
+                <> "That was probably a mistake, but either way that operation is not supported "
+                <> "right now. Sorry."
+          _ -> typecheckFailure
+      _ -> throwError "wrong number of arguments"
 
   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
       [x] -> do
@@ -615,6 +632,13 @@ primitives = (\p -> (primName p, p)) <$>
         (x, _) -> repr x >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
+
+toStream :: Direction -> Object IORef -> EvalMonad (Maybe (IORef Stream))
+toStream = runMaybeT .: curry \case
+  (In, Symbol Nil) -> use ins
+  (Out, Symbol Nil) -> use outs
+  (_, Stream s) -> pure s
+  _ -> empty
 
 continuation :: Object IORef -> MaybeT EvalMonad (Object IORef -> EvalMonad (Object IORef))
 continuation = \case

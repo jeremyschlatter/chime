@@ -264,14 +264,6 @@ instance Repr r' (r' (Pair r')) where
       maybeNumber :: MaybeT m String
       maybeNumber = number (Pair ref) <&> showNumber
 
-      showNumber :: Complex Rational -> String
-      showNumber (real :+ imag) =
-        showRatio real False <> if imag == 0 then "" else (showRatio imag True <> "i")
-
-      showRatio :: Rational -> Bool -> String
-      showRatio r b = (if b && r >=0 then "+" else "")
-        <> show (numerator r) <> if denominator r == 1 then "" else ("/" <> show (denominator r))
-
       maybeQuoted :: String -> String -> MaybeT m String
       maybeQuoted name p = readRef ref >>= \case
         MkPair (Sym n ame, Pair rest) | n:ame == name ->
@@ -304,6 +296,14 @@ instance Repr m (Object m) where
     Pair p -> repr p
     Character c -> repr c
     Stream _ -> pure "<stream>"
+
+showNumber :: Complex Rational -> String
+showNumber (real :+ imag) =
+  showRatio real False <> if imag == 0 then "" else (showRatio imag True <> "i")
+  where
+  showRatio :: Rational -> Bool -> String
+  showRatio r b = (if b && r >=0 then "+" else "")
+    <> show (numerator r) <> if denominator r == 1 then "" else ("/" <> show (denominator r))
 
 mcase2 :: Monad m => (x -> MaybeT m a, x -> b) -> x -> (Case2 a b -> m r) -> m r
 mcase2 (a, b) x r = (runMaybeT (Case1of2 <$> a x)) >>= r . maybe (Case2of2 (b x)) id
