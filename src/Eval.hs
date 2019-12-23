@@ -866,7 +866,7 @@ builtinsIO :: IO EvalState
 builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
 
 bel :: FilePath -> IO (Either Error EvalState)
-bel f = builtinsIO >>= \b -> readFile f >>= \s0 -> do
+bel f = preludeIO >>= \b -> readFile f >>= \s0 -> do
   prog <- either (die . errorBundlePretty) id (parseMany f s0)
   (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   pure (x $> s)
@@ -891,38 +891,38 @@ red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
 repl :: IO ()
-repl = do
-  args <- getArgs
-  s <- case args of
-    [] -> preludeIO
-    [f] -> bel f >>= \es -> either die pure es
-    _ -> die "Sorry, I can only handle up to one file"
-  hist <- getOrCreateHistoryFile
-  runInputT ((defaultSettings @IO)
-    { complete = noCompletion
-    , historyFile = Just hist
-    }) $ withInterrupt $ go "" s where
-  go :: String -> EvalState -> InputT IO ()
-  go prefix s = getExtendedInput prefix >>= \case
-    Nothing -> pure ()
-    Just input -> if isEmptyLine input then newline *> go "" s else do
-      case parse @EvalMonad "input" input of
-        Left err -> if isUnexpectedEOF err
-                    then go (input <> "\n") s
-                    else outputStrLn (red (errorBundlePretty err)) *> go "" s
-        Right obj -> handleInterrupt (newline *> newline *> go "" s) do
-          (x, s') <- lift $ runEval (obj >>= evaluate) s
-          either (pure . red) repr x >>= outputStrLn
-          newline
-          go "" $ either (const s) (const s') x
-  newline = outputStrLn "" -- empty line between inputs
-  getExtendedInput :: String -> InputT IO (Maybe String)
-  getExtendedInput prefix = handleInterrupt (newline *> getExtendedInput "")
-    ((prefix <>) <$$> getInputLine (if prefix == "" then "> " else "| "))
-  isUnexpectedEOF :: ParseErrorBundle String Void -> Bool
-  isUnexpectedEOF b = case toList (bundleErrors b) of
-    [TrivialError _ (Just EndOfInput) _] -> True
-    _ -> False
+repl = getArgs >>= \case
+  -- [f] -> putStrLn "hi"
+  [f] -> bel f >>= either die (const (pure ()))
+  _:_:_ -> die "Sorry, I can only handle up to one file"
+  [] -> do
+    s <- preludeIO
+    hist <- getOrCreateHistoryFile
+    runInputT ((defaultSettings @IO)
+      { complete = noCompletion
+      , historyFile = Just hist
+      }) $ withInterrupt $ go "" s where
+    go :: String -> EvalState -> InputT IO ()
+    go prefix s = getExtendedInput prefix >>= \case
+      Nothing -> pure ()
+      Just input -> if isEmptyLine input then newline *> go "" s else do
+        case parse @EvalMonad "input" input of
+          Left err -> if isUnexpectedEOF err
+                      then go (input <> "\n") s
+                      else outputStrLn (red (errorBundlePretty err)) *> go "" s
+          Right obj -> handleInterrupt (newline *> newline *> go "" s) do
+            (x, s') <- lift $ runEval (obj >>= evaluate) s
+            either (pure . red) repr x >>= outputStrLn
+            newline
+            go "" $ either (const s) (const s') x
+    newline = outputStrLn "" -- empty line between inputs
+    getExtendedInput :: String -> InputT IO (Maybe String)
+    getExtendedInput prefix = handleInterrupt (newline *> getExtendedInput "")
+      ((prefix <>) <$$> getInputLine (if prefix == "" then "> " else "| "))
+    isUnexpectedEOF :: ParseErrorBundle String Void -> Bool
+    isUnexpectedEOF b = case toList (bundleErrors b) of
+      [TrivialError _ (Just EndOfInput) _] -> True
+      _ -> False
 
 belDotBel :: String
 belDotBel = $(embedStringFile "reference/bel.bel")
