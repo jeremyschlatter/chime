@@ -781,8 +781,7 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   Pair ref -> readRef ref >>= \case
     Number _ -> pure expr
     Continuation _ -> pure expr
-    _ -> readPair "eval pair" ref >>= \(_, argTree) ->
-      (,,)
+    _ -> (,,)
         <$> runMaybeT (toVariable expr)
         <*> string expr
         <*> properList1 ref >>= \case
@@ -826,11 +825,13 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
             (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
               either pure
                 (\bound -> withScope (bound <> env) (evreturn body))
-          Macro (MkClosure env params body) ->
+          Macro (MkClosure env params body) -> do
+            (_, argTree) <- readPair "macro args" ref
             destructure params argTree >>=
               either pure
                 (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
-          Virfn (MkClosure env params body) ->
+          Virfn (MkClosure env params body) -> do
+            (_, argTree) <- readPair "virfn args" ref
             (op ~| argTree) >>= destructure params >>=
               either pure
                 (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
