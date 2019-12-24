@@ -669,13 +669,6 @@ toStream = runMaybeT .: curry \case
   (_, Stream s) -> pure s
   _ -> empty
 
-continuation :: Object IORef -> MaybeT EvalMonad (Object IORef -> EvalMonad (Object IORef))
-continuation = \case
-  Pair ref -> readRef ref >>= \case
-    Continuation c -> pure c
-    _ -> empty
-  _ -> empty
-
 operator :: Object IORef -> EvalMonad (Maybe Operator)
 operator = \case
   (specialForm -> Just f) -> pure $ Just $ SpecialForm f
@@ -787,24 +780,21 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   -- pairs
   Pair ref -> readRef ref >>= \case
     Number _ -> pure expr
+    Continuation _ -> pure expr
     _ -> readPair "eval pair" ref >>= \(_, argTree) ->
-      (,,,)
-        <$> runMaybeT (continuation expr)
-        <*> runMaybeT (toVariable expr)
+      (,,)
+        <$> runMaybeT (toVariable expr)
         <*> string expr
         <*> properList1 ref >>= \case
 
-        -- continuations
-        (Just _, _, _, _) -> pure expr
-
         -- vmark references
-        (_, Just _, _, _) -> vref expr
+        (Just _, _, _) -> vref expr
 
         -- strings
-        (_, _, Just _, _) -> pure expr
+        (_, Just _, _) -> pure expr
 
         -- operators with arguments
-        (_, _, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
+        (_, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
           TheContinuation c -> case args of
             [] -> throwError "tried to call a continuation with no arguments"
             [x] -> evaluate x >>= c
@@ -854,8 +844,8 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
       pop = scope %= \case
         _:|[] -> interpreterBug "can't pop scope"
         _:|x:xs -> x:|xs
-    giveUp = repr expr >>= \rep ->
-      throwError $ "I don't know how to evaluate this yet: " <> rep
+    giveUp = repr expr >>=
+      throwError . ("I don't know how to evaluate this yet: " <>)
 
 excessPrimParams :: String -> [a] -> Int -> EvalMonad (Object IORef)
 excessPrimParams nm args n =
