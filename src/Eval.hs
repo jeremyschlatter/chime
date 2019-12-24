@@ -95,6 +95,25 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
   , (">=",) $ numComp (>=) (>=)
   , ("<",) $ numComp (<) (<=)
   , ("<=",) $ numComp (<=) (<=)
+  , ("=",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) let
+      go :: Object IORef -> [Object IORef] -> EvalMonad Bool
+      go a = \case
+        [] -> pure $ True
+        x:xs -> eq a x >>= bool (pure False) (go a xs)
+      eq :: Object IORef -> Object IORef -> EvalMonad Bool
+      eq x y = bisequence (runMaybeT $ number x, runMaybeT $ number y) >>= \case
+        (Just n, Just m) -> pure $ n  == m
+        (Nothing, Nothing) -> case (x, y) of
+          (Symbol a, Symbol b) -> pure $ a == b
+          (Character a, Character b) -> pure $ a == b
+          (Stream a, Stream b) -> pure $ a == b
+          (Pair a, Pair b) -> bisequence (readPair "=" a, readPair "=" b) >>=
+            \((aa, ad), (ba, bd)) -> eq aa ba >>= bool (pure False) (eq ad bd)
+          _ -> pure False
+        _ -> pure False
+      in fmap (bool (Symbol Nil) (Sym 't' "")) . \case
+        a:b:cs -> go a (b:cs)
+        _ -> pure True
   , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go = \case
         [] -> pure $ Symbol Nil
