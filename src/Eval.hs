@@ -781,19 +781,19 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
   Pair ref -> readRef ref >>= \case
     Number _ -> pure expr
     Continuation _ -> pure expr
-    _ -> (,,)
-        <$> runMaybeT (toVariable expr)
-        <*> string expr
-        <*> properList1 ref >>= \case
+    _ -> (,)
+      <$> runMaybeT (toVariable expr)
+      <*> properList1 ref >>= \case
 
-        -- vmark references
-        (Just _, _, _) -> vref expr
+      -- vmark references
+      (Just _, _) -> vref expr
 
+      (_, Just l@(op :| args)) -> case all isChar l of
         -- strings
-        (_, Just _, _) -> pure expr
+        True -> pure expr
 
         -- operators with arguments
-        (_, _, Just (op :| args)) -> operator op >>= maybe giveUp \case
+        False -> operator op >>= maybe giveUp \case
           TheContinuation c -> case args of
             [] -> throwError "tried to call a continuation with no arguments"
             [x] -> evaluate x >>= c
@@ -836,9 +836,10 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
               either pure
                 (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
 
-        _ -> giveUp
+      _ -> giveUp
 
   where
+    isChar = \case Character _ -> True; _ -> False
     withScope :: Environment -> EvalMonad a -> EvalMonad a
     withScope env a = push *> a <* pop where
       push = scope %= (env <|)
