@@ -676,6 +676,7 @@ operator = \case
     Pair ref -> readRef ref >>= \case
       Continuation c -> pure $ Just $ TheContinuation c
       OptimizedFunction f -> pure $ Just $ TheOptimizedFunction f
+      Number _ -> Virfn <$$> runMaybeT (virfn [Sym 'l' "it", Sym 'n' "um"])
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
         Just (toList -> l) -> runMaybeT $
