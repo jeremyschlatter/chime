@@ -246,17 +246,41 @@ nativeMacros =
           Symbol Nil -> pure $ Symbol Nil
           _ -> go xs
       in go
-  , ("fn",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
-      parms : b:ody -> use scope >>= \(s:|_) ->
-        "lit" ~~ "clo" ~~ (listToObject @EvalMonad (pure . Pair <$> s)) ~~ parms ~|
-          case ody of
-            [] -> pure b
-            _ -> "do" ~~ go (b:ody) where
-              go = \case
-                [] -> pure $ Symbol Nil
-                x:xs -> x ~~ go xs
-      _ -> tooFewArguments
+  , ("fn",) $ MkOptimizedFunction fn (Symbol Nil, Symbol Nil)
   ]
+
+formSet :: [Object IORef] -> EvalMonad (Object IORef)
+formSet = go $ Symbol Nil where
+  go r = \case
+    [] -> pure r
+    [_] -> throwError "Odd number of arguments to set."
+
+    -- Quietly ignore attempts to overwrite vmark.
+    Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
+
+    var:val:rest -> evaluate val >>= \val' -> runMaybeT (toVariable var) >>= \case
+      -- _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
+      _ -> formWhere True var >>= \ttt -> properList ttt >>= \case
+        Just
+         [ Pair ref
+         , Sym ((\case 'a' -> Just True; 'd' -> Just False; _ -> Nothing) -> Just setCar) ""
+         ] -> readPair "set" ref >>= \(car, cdr) -> do
+            writeRef ref $ MkPair $ bool (car, val') (val', cdr) setCar
+            go val' rest
+        _ -> repr ttt >>= throwError . ("Tried to use set on something that was neither a variable nor a pair: " <>)
+
+-- Native implementation of the fn macro.
+fn :: [Object IORef] -> EvalMonad (Object IORef)
+fn = \case
+  parms : b:ody -> use scope >>= \(s:|_) ->
+    "lit" ~~ "clo" ~~ (listToObject @EvalMonad (pure . Pair <$> s)) ~~ parms ~|
+      case ody of
+        [] -> pure b
+        _ -> "do" ~~ go (b:ody) where
+          go = \case
+            [] -> pure $ Symbol Nil
+            x:xs -> x ~~ go xs
+  _ -> tooFewArguments
 
 withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
 withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
@@ -465,34 +489,10 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
       listToObject [pure f, pure c] >>= evreturn
-  , FormN "set" let
-      go r = \case
-        [] -> pure r
-        [_] -> throwError "Odd number of arguments to set."
-
-        -- Quietly ignore attempts to overwrite vmark.
-        Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
-
-        var:val:rest -> evaluate val >>= \val' -> runMaybeT (toVariable var) >>= \case
-          -- _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
-          _ -> formWhere True var >>= \ttt -> properList ttt >>= \case
-            Just
-             [ Pair ref
-             , Sym ((\case 'a' -> Just True; 'd' -> Just False; _ -> Nothing) -> Just setCar) ""
-             ] -> readPair "set" ref >>= \(car, cdr) -> do
-                writeRef ref $ MkPair $ bool (car, val') (val', cdr) setCar
-                go val' rest
-            _ -> repr ttt >>= throwError . ("Tried to use set on something that was neither a variable nor a pair: " <>)
-      in go $ Symbol Nil
-  -- @incomplete: this is just an approximation, since I haven't learned
-  -- yet what the full scope of def is.
+  , FormN "set" formSet
   , FormN "def" \case
       [] -> throwError "'def' received no arguments"
-      -- @incomplete: does not capture scope in the three-argument case
-      [n, p, e] -> evreturn =<<
-        ("set" ~~ n ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e))
-      n:rest -> evreturn =<< "set" ~~ n ~| ("fn" ~~ listToObject @EvalMonad (pure <$> rest))
-
+      n:rest -> fn rest >>= formSet . (n:) . pure
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
       go = \case
@@ -647,13 +647,13 @@ primitives = (\p -> (primName p, p)) <$>
       Nothing -> rep
       Just s -> unCharacter <$> s
   ] where
-      carAndCdr nm fn w = Prim1 nm \case
+      carAndCdr nm f w = Prim1 nm \case
         Symbol Nil -> pure $ Symbol Nil
         -- If we are inside a "where", return the tuple and our location.
         -- Otherwise, we return the normal value.
         Pair ra -> readPair "car/cdr" ra >>= \tup -> use locs >>= \case
           Just _:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
-          _ -> pure $ fn tup
+          _ -> pure $ f tup
         x -> repr x >>= \s -> throwError $ nm
           <> " is only defined on pairs and nil. " <> s <> " is neither of those."
       xarAndXdr nm which = Prim2 nm $ curry \case
