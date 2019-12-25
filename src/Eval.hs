@@ -335,21 +335,15 @@ throwError :: String -> EvalMonad (Object IORef)
 throwError s = listToObject [
   o "err", listToObject (pure . Character . MkCharacter <$> s)] >>= evaluate
 
-findMap :: (a -> Maybe b) -> [a] -> Maybe b
-findMap p = \case
-  [] -> Nothing
-  x:xs -> maybe (findMap p xs) Just (p x)
-
 envLookup'
   :: forall m. (MonadRef m, IORef ~ Ref m)
   => Object IORef -> Environment -> MaybeT m (IORef (Pair IORef), Object IORef)
-envLookup' k kvs = MaybeT $ traverse doRead kvs <&> findMap \p' -> case (k, p') of
-  (Symbol a, (p, MkPair (Symbol b, v))) | a == b -> Just (p, v)
-  (Pair a, (p, MkPair (Pair b, v))) | a == b -> Just (p, v)
-  _ -> Nothing
-  where
-    doRead :: IORef (Pair IORef) -> m (IORef (Pair IORef), Pair IORef)
-    doRead r = (r,) <$> readRef r
+envLookup' k = \case
+  [] -> empty
+  ref:kvs -> readRef ref >>= \kv -> case (k, kv) of
+    (Symbol a, MkPair (Symbol b, v)) | a == b -> pure (ref, v)
+    (Pair a, MkPair (Pair b, v)) | a == b -> pure (ref, v)
+    _ -> envLookup' k kvs
 
 envLookup :: Object IORef -> Environment -> MaybeT EvalMonad (Object IORef)
 envLookup = post .: envLookup' where
