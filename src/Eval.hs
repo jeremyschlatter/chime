@@ -218,6 +218,11 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
               <> "right now. Sorry."
         _ -> typecheckFailure
       _ -> throwError "wrong number of arguments"
+  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [x] -> case x of
+        (Symbol Nil) -> pure $ Sym 't' ""
+        _ -> pure $ Symbol Nil
+      _ -> throwError "wrong number of arguments"
 
   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
       [x] -> do
