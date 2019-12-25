@@ -505,8 +505,8 @@ specialForms = (\f -> (formName f, f)) <$>
         x -> pure $ Left x
       in fmap (either id id) . go
 
-  , Form3 "mac" \n p e -> evreturn =<<
-      ("set" ~~ n ~| ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
+  , Form3 "mac" \n p e -> formSet =<<
+      ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
 
   ]
 
