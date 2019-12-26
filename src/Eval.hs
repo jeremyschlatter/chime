@@ -264,7 +264,6 @@ formSet = go $ Symbol Nil where
     Sym 'v' "mark":_:rest -> Pair <$> use vmark >>= flip go rest
 
     var:val:rest -> evaluate val >>= \val' -> runMaybeT (toVariable var) >>= \case
-      -- _ -> ("where" ~| var) >>= evaluate >>= properList >>= \case
       _ -> formWhere True var >>= \ttt -> properList ttt >>= \case
         Just
          [ Pair ref
@@ -705,7 +704,7 @@ destructure p a' = pushScope *> go p a' <* popScope where
     Case1of3 (Symbol Nil) -> case arg of
       Symbol Nil -> pure $ Right []
       _ -> Left <$> tooManyArguments
-    Case1of3 v -> pushVar v arg -- pure $ Right [(v, arg)]
+    Case1of3 v -> pushVar v arg
     Case2of3 (v, f) -> listToObject [pure f, quote arg] >>= evaluate >>= \case
       Symbol Nil -> Left <$> typecheckFailure
       _ -> go v arg
@@ -718,7 +717,6 @@ destructure p a' = pushScope *> go p a' <* popScope where
       <> "consist entirely of variables, but this one contained a stream."
     Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
     Case3of3 (Pair pRef) ->
-      -- let go' (pf1, a1) (pf2, a2) = bisequence (go pf1 a1, go pf2 a2) <&> uncurry (liftA2 (<>))
       let go' (pf1, a1) (pf2, a2) = (liftA2 (<>)) <$> go pf1 a1 <*> go pf2 a2
       in readPair "destructure 1" pRef >>= \(p1, p2) ->
         bisequence (toOptionalVar p1, toOptionalVar p2) >>= \(o1, o2) ->
@@ -906,7 +904,6 @@ red s = "\ESC[31m" <> s <> "\ESC[0m"
 
 repl :: IO ()
 repl = getArgs >>= \case
-  -- [f] -> putStrLn "hi"
   [f] -> bel f >>= either die (const (pure ()))
   _:_:_ -> die "Sorry, I can only handle up to one file"
   [] -> do
