@@ -9,7 +9,7 @@ import Data.Bitraversable
 import Data.List.NonEmpty as NE
 
 import Text.Megaparsec hiding (parse, sepBy1)
-import qualified Text.Megaparsec as M (parse)
+import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char hiding (string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error (errorBundlePretty)
@@ -156,14 +156,12 @@ bom :: Parser m ()
 bom = void $ char '\xfeff'
 
 parse :: (MonadRef m, r ~ Ref m)
-  => FilePath -> String -> Either (ParseErrorBundle String Void) (m (Object r))
-parse = M.parse (runIdentity . refSwap <$>
-  (optional bom *> sc *> expression <* eof))
+  => FilePath -> String -> m (Either (ParseErrorBundle String Void) (Object r))
+parse = M.runParserT (optional bom *> sc *> expression <* eof)
 
 parseMany :: (MonadRef m, r ~ Ref m)
-  => FilePath -> String -> Either (ParseErrorBundle String Void) (m [Object r])
-parseMany = M.parse (traverse (runIdentity . refSwap) <$>
-  (optional bom *> sc *> many expression <* eof))
+  => FilePath -> String -> m (Either (ParseErrorBundle String Void) [Object r])
+parseMany = M.runParserT (optional bom *> sc *> many expression <* eof)
 
 isEmptyLine :: String -> Bool
 isEmptyLine = isJust . parseMaybe (sc *> eof)

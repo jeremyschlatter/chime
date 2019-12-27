@@ -698,11 +698,10 @@ spec = do
 --                         parsing test helpers
 
 parseThenPrintShouldBe :: String -> String -> Expectation
-parseThenPrintShouldBe a b =
+parseThenPrintShouldBe a b = parse @IO "test case" a >>=
   either
     (expectationFailure . ((a <> ": ") <>) . errorBundlePretty)
-    (>>= repr >=> (`shouldBe` b))
-    (parse @IO "test case" a)
+    (repr >=> (`shouldBe` b))
 
 -- ----------------------------------------------------------------------------
 --                           eval test helpers

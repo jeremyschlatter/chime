@@ -867,9 +867,8 @@ runEval = runStateT . flip runContT pure . runExceptT
 
 readThenEval :: FilePath -> String -> EvalMonad (Object IORef)
 readThenEval path =
-  (>>= evaluate) .
-  either (throwError . errorBundlePretty) id .
-  parse path
+  (>>= either (throwError . errorBundlePretty) evaluate)
+  . parse path
 
 readThenRunEval :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
 readThenRunEval p c s = flip runEval s $ readThenEval p c
@@ -879,7 +878,7 @@ builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
 
 bel :: FilePath -> IO (Either Error EvalState)
 bel f = preludeIO >>= \b -> readFile f >>= \s0 -> do
-  prog <- either (die . errorBundlePretty) id (parseMany f s0)
+  prog <- parseMany f s0 >>= either (die . errorBundlePretty) pure
   (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   pure (x $> s)
 
@@ -892,7 +891,7 @@ getOrCreateHistoryFile = do
 preludeIO :: IO EvalState
 preludeIO = do
   b <- builtinsIO
-  prog <- either (die . errorBundlePretty) id (parseMany "bel.bel" belDotBel)
+  prog <- parseMany "bel.bel" belDotBel >>= either (die . errorBundlePretty) pure
   (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   either
     (\e -> interpreterBug $ "failed to interpret bel.bel: " <> e)
@@ -917,12 +916,13 @@ repl = getArgs >>= \case
     go prefix s = getExtendedInput prefix >>= \case
       Nothing -> pure ()
       Just input -> if isEmptyLine input then newline *> go "" s else do
-        case parse @EvalMonad "input" input of
+        parsed <- parse "input" input
+        case parsed of
           Left err -> if isUnexpectedEOF err
                       then go (input <> "\n") s
                       else outputStrLn (red (errorBundlePretty err)) *> go "" s
           Right obj -> handleInterrupt (newline *> newline *> go "" s) do
-            (x, s') <- lift $ runEval (obj >>= evaluate) s
+            (x, s') <- lift $ runEval (evaluate obj) s
             either (pure . red) repr x >>= outputStrLn
             newline
             go "" $ either (const s) (const s') x
