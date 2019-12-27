@@ -5,6 +5,7 @@ module Parse
 
 import BasePrelude hiding (try, many)
 import Control.Applicative.Combinators.NonEmpty
+import Control.Monad.Trans.State
 import Data.Bitraversable
 import Data.List.NonEmpty as NE
 
@@ -14,11 +15,12 @@ import Text.Megaparsec.Char hiding (string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error (errorBundlePretty)
 
+import Common
 import Data hiding (string, number, o)
 
-type Parser m = ParsecT Void String m
+type Parser m = ParsecT Void String (StateT (Shares (Ref m)) m)
 
-sc :: Parser m ()
+sc :: ParsecT Void String m ()
 sc = L.space space1 (L.skipLineComment ";") empty
 
 lexeme :: Parser m a -> Parser m a
@@ -157,11 +159,11 @@ bom = void $ char '\xfeff'
 
 parse :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) (Object r))
-parse = M.runParserT (optional bom *> sc *> expression <* eof)
+parse = flip evalStateT [] .: M.runParserT (optional bom *> sc *> expression <* eof)
 
 parseMany :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) [Object r])
-parseMany = M.runParserT (optional bom *> sc *> many expression <* eof)
+parseMany = flip evalStateT [] .: M.runParserT (optional bom *> sc *> many expression <* eof)
 
 isEmptyLine :: String -> Bool
 isEmptyLine = isJust . parseMaybe (sc *> eof)
