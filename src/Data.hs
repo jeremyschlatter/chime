@@ -197,30 +197,6 @@ infixr 4 .*
 a .| b = a .* ((.*) @m b "nil") where
 infixr 4 .|
 
-refSwap :: (MonadRef m, r ~ Ref m) => Object Identity -> Identity (m (Object r))
-refSwap = \case
-  Symbol s -> pure $ pure $ Symbol s
-  Character c -> pure $ pure $ Character c
-  Stream r -> readRef r >>= \s -> pure $ fmap Stream $ newRef s
-  Pair r -> readRef r >>= \case
-    Number n -> pure $ fmap Pair $ newRef $ Number n
-    Continuation c -> pure $ fmap Pair $ newRef $ Continuation c
-    OptimizedFunction (MkOptimizedFunction body (fba, fbb)) -> do
-      fba' <- refSwap fba
-      fbb' <- refSwap fbb
-      pure $ do
-        fba'' <- fba'
-        fbb'' <- fbb'
-        fmap Pair $ newRef $ OptimizedFunction $
-          MkOptimizedFunction body (fba'', fbb'')
-    MkPair (car, cdr) -> do
-      car' <- refSwap car
-      cdr' <- refSwap cdr
-      pure $ do
-        car'' <- car'
-        cdr'' <- cdr'
-        car'' .* cdr''
-
 properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
 properList1 ref = readPair "properList1" ref >>=
   \(car, cdr) -> fmap (car :|) <$> properList cdr
