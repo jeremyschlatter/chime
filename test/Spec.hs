@@ -526,10 +526,10 @@ spec = do
       -- "(digit \\a i16)" `is` "t"
       "(digit \\a i16)" `is` "\"a9876543210\""
 
-      -- @incomplete: print and read shared pair syntax
-      -- > (let x '(a)
-      --     (list x x))
-      -- (#1=(a) #1)
+      -- @incomplete: read shared pair syntax
+      replTest $ []
+        >> "(let x '(a) (list x x))"
+        > "(#1=(a) #1)"
       -- > (set x '(a #1=(b) #1 c))
       -- (a #1=(b) #1 c)
       -- > (id (2 x) (3 x))
@@ -560,15 +560,9 @@ spec = do
       "(let x '(a b c) `,,x)" `is` "<error>"
       "1.5" `is` "3/2"
       "\"foo\"" `is` "\"foo\""
-
-      -- @incomplete: uncomment when shared pair printing is implemented
-      -- "(let x '(a b c) (list x x))" `is` "(#1=(a b c) #1)"
-
+      "(let x '(a b c) (list x x))" `is` "(#1=(a b c) #1)"
       "(cons 'a 5)" `is` "(a . 5)"
-
-      -- @incomplete: uncomment when shared pair printing is implemented
-      -- "(let x '(a b c) (cons x x))" `is` "(#1=(a b c) . #1)"
-
+      "(let x '(a b c) (cons x x))" `is` "(#1=(a b c) . #1)"
       "(append '(a b c) 5)" `is` "(a b c . 5)"
 
       -- @incomplete: uncomment when tests capture stdout

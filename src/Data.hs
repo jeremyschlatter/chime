@@ -2,11 +2,11 @@
 module Data where
 
 import BasePrelude
-import Control.Lens.Combinators (makeLenses)
+import Control.Lens.Combinators (makeLenses, makePrisms)
 import Control.Monad.Cont
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.State hiding (get, put)
+import Control.Monad.Trans.State
 import Data.Bitraversable
 import System.IO
 
@@ -65,6 +65,7 @@ data EvalState = EvalState
  , _outs :: IORef Stream
  }
 $(makeLenses ''EvalState)
+$(makePrisms ''Object)
 
 newStream :: (MonadRef m, Ref m ~ IORef) => Direction -> Handle -> m (IORef Stream)
 newStream d h = newRef (MkStream h d 0 7)
@@ -131,7 +132,7 @@ readPair _why x = readRef x >>= \case
   -- Collapse the optimized representation! :(
   OptimizedFunction f -> writeRef x (MkPair (fnFallback f)) $> fnFallback f
 
-instance Repr r (Either (r (Pair r)) Symbol) where
+instance EqRef r => Repr r (Either (r (Pair r)) Symbol) where
   repr = either repr repr
 instance ToObject m r (Either (r (Pair r)) Symbol) where
   toObject = pure . either Pair Symbol
@@ -245,14 +246,42 @@ quote = ("quote" .|)
 pattern Sym       :: Char -> String -> Object r
 pattern Sym n ame = Symbol (MkSymbol (n :| ame))
 
+type Shares r = [(r (Pair r), (Int, Bool))]
+
+type EqRef r = forall a. Eq (r a)
+
+collectPairs :: forall m r. (MonadRef m, r ~ Ref m, EqRef r) => r (Pair r) -> m (Shares r)
+collectPairs = fmap fst . go ([], []) . Pair where
+  go :: (Shares r, [r (Pair r)]) -> Object r -> m (Shares r, [r (Pair r)])
+  go (shares, seen) = \case
+    Pair ref ->
+      let (stop, shares', seen') = bool
+            (False, shares, ref:seen)
+            (True, (maybe
+               ((ref, (length shares + 1, False)):shares)
+               (const shares)
+               (lookup ref shares))
+             , seen)
+            (elem ref seen)
+      in if stop then pure (shares', seen') else readRef ref >>= \case
+        MkPair (car, cdr) -> go (shares', seen') car >>= flip go cdr
+        _ -> pure (shares', seen')
+    _ -> pure (shares, seen)
+
 class Repr r x where
   repr :: (MonadRef m, r ~ Ref m) => x -> m String
+  reprShare :: (MonadRef m, r ~ Ref m) => x -> StateT (Shares r) m String
+  reprShare = lift . repr
 instance Repr r Symbol where
   repr = pure . toList . unSymbol
-instance Repr r' (r' (Pair r')) where
-  repr :: forall r m. (MonadRef m, r ~ Ref m) => r (Pair r) -> m String
-  repr ref = do
-    mb <- runMaybeT $
+instance EqRef r' => Repr r' (r' (Pair r')) where
+  repr :: (EqRef r, MonadRef m, r ~ Ref m) => r (Pair r) -> m String
+  repr ref = collectPairs ref >>= evalStateT (reprShare ref)
+  reprShare
+    :: forall r m. (EqRef r, MonadRef m, r ~ Ref m)
+    => r (Pair r) -> StateT (Shares r) m String
+  reprShare ref = do
+    mb <- lift $ runMaybeT $
       (MaybeT (string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""))
       <|> maybeQuoted "quote" "'"
       <|> maybeQuoted "~backquote" "`"
@@ -276,25 +305,50 @@ instance Repr r' (r' (Pair r')) where
         _ -> empty
       escaped :: Character -> String
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
-      go :: String -> String -> r (Pair r) -> m String
-      go pre post ref' = readRef ref' >>= \case
-        Number n -> pure $ showNumber n
-        Continuation _ -> pure "<continuation>"
-        OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>= repr
-        MkPair (car, cdr) -> repr car >>= \car' ->
-          (\s -> pre <> s <> post) . (car' <>) <$> mcase2 (number, id) cdr \case
-            Case1of2 n -> pure (" . " <> showNumber n)
-            Case2of2 (Symbol Nil) -> pure ""
-            Case2of2 (Pair p') -> (" " <>) <$> go "" "" p'
-            Case2of2 x -> (" . " <>) <$> repr x
 
-instance Repr m Character where
+      setB rr = \case
+        [] -> []
+        (r,(ri,_)):xs | r == rr -> (r, (ri, True)) : xs
+        x:xs -> x : setB rr xs
+
+      go :: String -> String -> r (Pair r) -> StateT (Shares r) m String
+      go pre post ref' = do
+        shares <- get
+        case lookup ref' shares of
+          Just (i, True) -> pure $ '#' : show i
+          Just (i, False) -> do
+            put $ setB ref' shares
+            rep ('#' : show i <> "=")
+          Nothing -> rep ""
+        where
+          rep ms =
+            readRef ref' >>= \case
+              Number n -> pure $ ms <> showNumber n
+              Continuation _ -> pure $ ms <> "<continuation>"
+              OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>=
+                (fmap (ms <>)) . reprShare
+              MkPair (car, cdr) -> reprShare car >>= \car' ->
+                (\s -> (ms <> pre <> s <> post)) . (car' <>)
+                  <$> mcase2 (number, id) cdr \case
+                    Case1of2 n -> pure (" . " <> showNumber n)
+                    Case2of2 (Symbol Nil) -> pure ""
+                    Case2of2 (Pair p') -> get >>= \st' -> case lookup p' st' of
+                      Just (i, True) -> pure $ " . #" <> show i
+                      _ -> (" " <>) <$> go "" "" p'
+                    Case2of2 x -> (" . " <>) <$> reprShare x
+
+instance Repr r Character where
   repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
-instance Repr m (Object m) where
+instance EqRef r => Repr r (Object r) where
   repr = \case
     Symbol s -> repr s
     Pair p -> repr p
     Character c -> repr c
+    Stream _ -> pure "<stream>"
+  reprShare = \case
+    Symbol s -> reprShare s
+    Pair p -> reprShare p
+    Character c -> reprShare c
     Stream _ -> pure "<stream>"
 
 showNumber :: Complex Rational -> String
