@@ -16,15 +16,7 @@ import Text.Megaparsec.Error (errorBundlePretty)
 
 import Data hiding (string, number, o)
 
--- type Parser = Parsec Void String
--- type Parser m = ParsecT Void String (StateT (Shares (Ref m)) m)
 type Parser m = ParsecT Void String m
-
-listToPair' :: [Object Identity] -> Object Identity
-listToPair' = runIdentity . toObject . (fmap Identity)
-
-o :: (ToObject Identity Identity x) => x -> Object Identity
-o = runIdentity . toObject
 
 sc :: Parser m ()
 sc = L.space space1 (L.skipLineComment ";") empty
@@ -40,60 +32,61 @@ regularChar = (alphaNumChar <|> oneOf "#$%&*+-/;<=>?@^_{}¦") <?> "regular chara
 
 data DotBang a = Dot a | Bang a deriving Functor
 
-composedSymbols :: Parser m (Object Identity)
+composedSymbols :: forall m. MonadRef m => Parser m (Object (Ref m))
 composedSymbols = let
   -- regular symbols
-  s0 :: Parser m (Object Identity)
+  s0 :: Parser m (Object (Ref m))
   s0 = (some1 regularChar <&> Symbol . MkSymbol)
        <|> try (lexLit "(" *> lexLit ")" $> Symbol Nil)
   -- numbers
-  s1 :: Parser m (Object Identity)
+  s1 :: Parser m (Object (Ref m))
   s1 = try number <|> s0
   -- tildes
-  s2 :: Parser m (Object Identity)
-  s2 = bisequence (optional (char '~'), s1) <&> \case
-    (Nothing, x) -> x
+  s2 :: Parser m (Object (Ref m))
+  s2 = bisequence (optional (char '~'), s1) >>= \case
+    (Nothing, x) -> pure x
     (Just _, x) -> compose $ Sym 'n' "o" :| [x]
   -- colon
-  s3 :: Parser m (Object Identity)
-  s3 = sepBy1 s2 (char ':') <&> compose
+  s3 :: Parser m (Object (Ref m))
+  s3 = sepBy1 s2 (char ':') >>= compose
   -- . and !
-  s4 :: Parser m (Object Identity)
-  s4 = bisequence (bisequence (optional (dotBang (pure ())), s3), many (dotBang s3)) <&> \case
+  s4 :: Parser m (Object (Ref m))
+  s4 = bisequence (bisequence (optional (dotBang (pure ())), s3), many (dotBang s3)) >>= \case
     ((Just f, x), xs) -> go (Sym 'u' "pon") ((f $> x) : xs)
-    ((Nothing, x), []) -> x
+    ((Nothing, x), []) -> pure x
     ((Nothing, x), xs) -> go x xs
     where
-      go :: Object Identity -> [DotBang (Object Identity)] -> Object Identity
-      go = curry $ runIdentity . \case
+      go :: Object (Ref m) -> [DotBang (Object (Ref m))] -> Parser m (Object (Ref m))
+      go = curry \case
         (a, []) -> a .* "nil"
         (a, Dot b : cs) -> a .* go b cs
-        (a, Bang b : cs) -> a .* go (runIdentity $ quote b) cs
+        (a, Bang b : cs) -> quote b >>= \b' -> a .* go b' cs
   -- |
-  s5 :: Parser m (Object Identity)
-  s5 = sepBy1 s4 (char '|') <&> go where
+  s5 :: Parser m (Object (Ref m))
+  s5 = sepBy1 s4 (char '|') >>= go where
     go = \case
-      a :| [] -> a
-      a :| b:cs -> listToPair' [Sym 't' "", a, go (b:|cs)]
+      a :| [] -> pure a
+      a :| b:cs -> listToObject [pure (Sym 't' ""), pure a, go (b:|cs)]
   dotBang :: Parser m a -> Parser m (DotBang a)
   dotBang = (((char '.' $> Dot) <|> (char '!' $> Bang)) <*>)
-  compose :: NonEmpty (Object Identity) -> Object Identity
+  compose :: NonEmpty (Object (Ref m)) -> Parser m (Object (Ref m))
   compose = \case
-    x :| [] -> x
-    xs -> listToPair' $ NE.toList $ o "compose" <| xs
+    x :| [] -> pure x
+    xs -> pureListToObject $ NE.toList $ Sym 'c' "ompose" <| xs
   in lexeme s5
 
 surround :: String -> String -> Parser m a -> Parser m a
 surround a b x = lexLit a *> x <* lexLit b
 
-string :: Parser m (Object Identity)
-string = surround "\"" "\"" (listToPair' . (fmap Character) <$>
-  many (character' (regularChar <|> oneOf ",`'\\.[](): !~|")))
+string :: MonadRef m => Parser m (Object (Ref m))
+string = surround "\"" "\"" $
+  many (Character <$> character' (regularChar <|> oneOf ",`'\\.[](): !~|")) >>=
+    pureListToObject
 
-pair :: Parser m (Pair Identity)
+pair :: MonadRef m => Parser m (Pair (Ref m))
 pair = surround "(" ")" pair' where
   pair' = liftA2 (curry MkPair) expression $
-    (lexLit "." *> expression) <|> (Pair . Identity <$> pair') <|> (pure $ Symbol Nil)
+    (lexLit "." *> expression) <|> (pair' >>= fmap Pair . newRef) <|> (pure $ Symbol Nil)
 
 character' :: Parser m Char -> Parser m Character
 character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescaped where
@@ -105,32 +98,33 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
 character :: Parser m Character
 character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]():!~|")
 
-quotedExpression :: Parser m (Object Identity)
-quotedExpression = char '\'' *> expression <&> runIdentity . quote
+quotedExpression :: MonadRef m => Parser m (Object (Ref m))
+quotedExpression = char '\'' *> expression >>= quote
 
-backQuotedList :: Parser m (Object Identity)
-backQuotedList = char '`' *> surround "(" ")" (many expression) <&> backquote . listToPair'
-  where
-    -- @incomplete: implement this in a way that cannot clash with user symbols
-    backquote = runIdentity . ("~backquote" .|)
+backQuotedList :: MonadRef m => Parser m (Object (Ref m))
+backQuotedList = char '`' *> surround "(" ")" (many expression) >>= pureListToObject >>=
+  -- @incomplete: implement this in a way that cannot clash with user symbols
+  ("~backquote" .|)
 
-commaExpr :: Parser m (Object Identity)
+mkPair' :: MonadRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
+mkPair' a b = fmap Pair $ newRef $ MkPair $ (a, b)
+
+commaExpr :: MonadRef m => Parser m (Object (Ref m))
 commaExpr = char ',' *> (atExpr <|> expr) where
-  expr = expression <&> \x ->
-    -- @incomplete: implement this in a way that cannot clash with user symbols
-    Pair $ Identity $ MkPair (Sym '~' "comma", x)
-  atExpr = char '@' *> expression <&> \x ->
-    Pair $ Identity $ MkPair (Sym '~' "splice", x)
+  -- @incomplete: implement this in a way that cannot clash with user symbols
+  expr = expression >>= mkPair' (Sym '~' "comma")
+  atExpr = char '@' *> expression >>= mkPair' (Sym '~' "splice")
 
 -- [f _ x] -> (fn (_) (f _ x))
-bracketFn :: Parser m (Object Identity)
-bracketFn = lexChar '[' *> (wrap <$> many expression) <* lexChar ']' where
-  wrap x = l [Sym 'f' "n", l [Sym '_' ""], l x]
-  l = listToPair'
+bracketFn :: MonadRef m => Parser m (Object (Ref m))
+bracketFn = lexChar '[' *> (many expression >>= wrap) <* lexChar ']' where
+  wrap x = l [pure (Sym 'f' "n"), pl [Sym '_' ""], pl x]
+  l = listToObject
+  pl = pureListToObject
   lexChar = lexeme . char
 
-number :: Parser m (Object Identity)
-number = lexeme (o <$> complex) where
+number :: MonadRef m => Parser m (Object (Ref m))
+number = lexeme (complex >>= toObject) where
   complex :: Parser m (Complex Rational)
   complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
     (Nothing, Nothing) -> empty
@@ -147,7 +141,7 @@ number = lexeme (o <$> complex) where
   integer = L.decimal
   opt p = fmap Just p <|> pure Nothing
 
-expression :: Parser m (Object Identity)
+expression :: MonadRef m => Parser m (Object (Ref m))
 expression =  composedSymbols
           <|> quotedExpression
           <|> backQuotedList
@@ -155,7 +149,7 @@ expression =  composedSymbols
           <|> string
           <|> bracketFn
           <|> number
-          <|> (Pair . Identity <$> pair)
+          <|> (pair >>= fmap Pair . newRef)
           <|> (Character <$> character)
 
 bom :: Parser m ()

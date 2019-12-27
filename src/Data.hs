@@ -183,6 +183,11 @@ collapseNumber c = (Sym 'l' "it",) <$> o [o "num", num $ realPart c, num $ imagP
 listToObject :: (MonadRef m, r ~ Ref m) => [m (Object r)] -> m (Object r)
 listToObject = toObject
 
+pureListToObject :: forall m r. (MonadRef m, r ~ Ref m) => [Object r] -> m (Object r)
+pureListToObject = \case
+  [] -> pure $ Symbol Nil
+  x:xs -> x .* pureListToObject @m xs
+
 (.*) :: forall m r a b. (MonadRef m, r ~ Ref m, ToObject m r a, ToObject m r b)
      => a -> b -> m (Object r)
 (.*) = fmap Pair . ((newRef . MkPair) =<<) . bimapM (toObject @m) (toObject @m) .: (,)
