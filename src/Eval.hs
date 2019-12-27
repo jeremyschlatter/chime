@@ -14,6 +14,7 @@ import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.FileEmbed
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
+import qualified Data.Map.Strict as Map
 import Data.Text (singleton)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -184,7 +185,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
             -- @incomplete: handle bases other than 10
             (Just s, Just (length -> n)) | n == 10 ->
-              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) [] >>=
+              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty >>=
                 either (throwError . errorBundlePretty) pure
             _ -> typecheckFailure
         _:_:_:_ -> tooManyArguments

@@ -43,6 +43,7 @@ library:
   source-dirs: src
   dependencies:
   - bytestring
+  - containers
   - directory
   - file-embed
   - filepath

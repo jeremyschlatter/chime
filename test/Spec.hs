@@ -521,19 +521,19 @@ spec = do
         (list (rdc s) (rdc s)))
       |] `is` "\"ab\""
       "(digit \\a)" `is` "nil"
+
       -- spec bug: this example from the spec is incorrect.
       -- the actual output is on the next line.
       -- "(digit \\a i16)" `is` "t"
       "(digit \\a i16)" `is` "\"a9876543210\""
 
-      -- @incomplete: read shared pair syntax
       replTest $ []
         >> "(let x '(a) (list x x))"
         > "(#1=(a) #1)"
-      -- > (set x '(a #1=(b) #1 c))
-      -- (a #1=(b) #1 c)
-      -- > (id (2 x) (3 x))
-      -- t
+        >> "(set x '(a #1=(b) #1 c))"
+        > "(a #1=(b) #1 c)"
+        >> "(id (2 x) (3 x))"
+        > "t"
 
       -- @consider: should the output say (quote b) instead?
       -- @performance: this test takes 1.5 seconds

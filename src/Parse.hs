@@ -5,9 +5,11 @@ module Parse
 
 import BasePrelude hiding (try, many)
 import Control.Applicative.Combinators.NonEmpty
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State (StateT, evalStateT)
+import Control.Monad.State.Class
 import Data.Bitraversable
 import Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as Map
 
 import Text.Megaparsec hiding (parse, sepBy1)
 import qualified Text.Megaparsec as M
@@ -18,7 +20,10 @@ import Text.Megaparsec.Error (errorBundlePretty)
 import Common
 import Data hiding (string, number, o)
 
-type Parser m = ParsecT Void String (StateT (Shares (Ref m)) m)
+type ParseState r = Map.Map Int (r (Pair r))
+
+-- type Parser m = ParsecT Void String (StateT (Shares (Ref m)) m)
+type Parser m = ParsecT Void String (StateT (ParseState (Ref m)) m)
 
 sc :: ParsecT Void String m ()
 sc = L.space space1 (L.skipLineComment ";") empty
@@ -30,7 +35,7 @@ lexLit :: String -> Parser m ()
 lexLit = void <$> L.symbol sc
 
 regularChar :: Parser m Char
-regularChar = (alphaNumChar <|> oneOf "#$%&*+-/;<=>?@^_{}¦") <?> "regular character"
+regularChar = (alphaNumChar <|> oneOf "$%&*+-/;<=>?@^_{}¦") <?> "regular character"
 
 data DotBang a = Dot a | Bang a deriving Functor
 
@@ -82,7 +87,7 @@ surround a b x = lexLit a *> x <* lexLit b
 
 string :: MonadRef m => Parser m (Object (Ref m))
 string = surround "\"" "\"" $
-  many (Character <$> character' (regularChar <|> oneOf ",`'\\.[](): !~|")) >>=
+  many (Character <$> character' (regularChar <|> oneOf "#,`'\\.[](): !~|")) >>=
     pureListToObject
 
 pair :: MonadRef m => Parser m (Pair (Ref m))
@@ -98,7 +103,7 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
     (foldl (flip \(s, c) -> ((lexLit s $> c) <|>)) empty controlChars)
 
 character :: Parser m Character
-character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "\",`'\\.[]():!~|")
+character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "#\",`'\\.[]():!~|")
 
 quotedExpression :: MonadRef m => Parser m (Object (Ref m))
 quotedExpression = char '\'' *> expression >>= quote
@@ -143,8 +148,25 @@ number = lexeme (complex >>= toObject) where
   integer = L.decimal
   opt p = fmap Just p <|> pure Nothing
 
+sharedPair :: forall m. MonadRef m => Parser m (Object (Ref m))
+sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
+  tag :: Int -> Parser m (Object (Ref m))
+  tag n = findShare n >>= \case
+    -- @incomplete: add error info
+    Just _ -> empty -- "duplicate definition of shared pair #" <> show n
+    Nothing -> char '=' *> pair >>= newRef >>= \r -> do
+      modify (Map.insert n r) *> pure (Pair r)
+  ref :: Int -> Parser m (Object (Ref m))
+  ref n = findShare n >>= \case
+    -- @incomplete: add error info
+    Nothing -> traceM "this one" *> empty -- "reference to shared pair #" <> show n <> " with no preceding definition"
+    Just r -> pure $ Pair r
+  findShare :: Int -> Parser m (Maybe (Ref m (Pair (Ref m))))
+  findShare n = Map.lookup n <$> get
+
 expression :: MonadRef m => Parser m (Object (Ref m))
 expression =  composedSymbols
+          <|> lexeme sharedPair
           <|> quotedExpression
           <|> backQuotedList
           <|> commaExpr
@@ -159,11 +181,11 @@ bom = void $ char '\xfeff'
 
 parse :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) (Object r))
-parse = flip evalStateT [] .: M.runParserT (optional bom *> sc *> expression <* eof)
+parse = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> expression <* eof)
 
 parseMany :: (MonadRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) [Object r])
-parseMany = flip evalStateT [] .: M.runParserT (optional bom *> sc *> many expression <* eof)
+parseMany = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> many expression <* eof)
 
 isEmptyLine :: String -> Bool
 isEmptyLine = isJust . parseMaybe (sc *> eof)
