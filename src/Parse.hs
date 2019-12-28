@@ -39,7 +39,7 @@ regularChar = (alphaNumChar <|> oneOf "$%&*+-/;<=>?@^_{}¦") <?> "regular charac
 
 data DotBang a = Dot a | Bang a deriving Functor
 
-composedSymbols :: forall m. MonadRef m => Parser m (Object (Ref m))
+composedSymbols :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
 composedSymbols = let
   -- regular symbols
   s0 :: Parser m (Object (Ref m))
@@ -85,12 +85,12 @@ composedSymbols = let
 surround :: String -> String -> Parser m a -> Parser m a
 surround a b x = lexLit a *> x <* lexLit b
 
-string :: MonadRef m => Parser m (Object (Ref m))
+string :: MonadMutableRef m => Parser m (Object (Ref m))
 string = surround "\"" "\"" $
   many (Character <$> character' (regularChar <|> oneOf "#,`'\\.[](): !~|")) >>=
     pureListToObject
 
-pair :: MonadRef m => Parser m (Pair (Ref m))
+pair :: MonadMutableRef m => Parser m (Pair (Ref m))
 pair = surround "(" ")" pair' where
   pair' = liftA2 (curry MkPair) expression $
     (lexLit "." *> expression) <|> (pair' >>= fmap Pair . newRef) <|> (pure $ Symbol Nil)
@@ -105,32 +105,32 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
 character :: Parser m Character
 character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "#\",`'\\.[]():!~|")
 
-quotedExpression :: MonadRef m => Parser m (Object (Ref m))
+quotedExpression :: MonadMutableRef m => Parser m (Object (Ref m))
 quotedExpression = char '\'' *> expression >>= quote
 
-backQuotedList :: MonadRef m => Parser m (Object (Ref m))
+backQuotedList :: MonadMutableRef m => Parser m (Object (Ref m))
 backQuotedList = char '`' *> surround "(" ")" (many expression) >>= pureListToObject >>=
   -- @incomplete: implement this in a way that cannot clash with user symbols
   ("~backquote" .|)
 
-mkPair' :: MonadRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
+mkPair' :: MonadMutableRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
 mkPair' a b = fmap Pair $ newRef $ MkPair $ (a, b)
 
-commaExpr :: MonadRef m => Parser m (Object (Ref m))
+commaExpr :: MonadMutableRef m => Parser m (Object (Ref m))
 commaExpr = char ',' *> (atExpr <|> expr) where
   -- @incomplete: implement this in a way that cannot clash with user symbols
   expr = expression >>= mkPair' (Sym '~' "comma")
   atExpr = char '@' *> expression >>= mkPair' (Sym '~' "splice")
 
 -- [f _ x] -> (fn (_) (f _ x))
-bracketFn :: MonadRef m => Parser m (Object (Ref m))
+bracketFn :: MonadMutableRef m => Parser m (Object (Ref m))
 bracketFn = lexChar '[' *> (many expression >>= wrap) <* lexChar ']' where
   wrap x = l [pure (Sym 'f' "n"), pl [Sym '_' ""], pl x]
   l = listToObject
   pl = pureListToObject
   lexChar = lexeme . char
 
-number :: MonadRef m => Parser m (Object (Ref m))
+number :: MonadMutableRef m => Parser m (Object (Ref m))
 number = lexeme (complex >>= toObject) where
   complex :: Parser m (Complex Rational)
   complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
@@ -148,23 +148,25 @@ number = lexeme (complex >>= toObject) where
   integer = L.decimal
   opt p = fmap Just p <|> pure Nothing
 
-sharedPair :: forall m. MonadRef m => Parser m (Object (Ref m))
+sharedPair :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
 sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
   tag :: Int -> Parser m (Object (Ref m))
   tag n = findShare n >>= \case
     -- @incomplete: add error info
     Just _ -> empty -- "duplicate definition of shared pair #" <> show n
-    Nothing -> char '=' *> pair >>= newRef >>= \r -> do
-      modify (Map.insert n r) *> pure (Pair r)
+    Nothing -> char '=' *> newRef (MkPair (Symbol Nil, Symbol Nil)) >>= \r -> do
+      modify (Map.insert n r)
+      p <- pair
+      writeRef r p
+      pure (Pair r)
   ref :: Int -> Parser m (Object (Ref m))
   ref n = findShare n >>= \case
     -- @incomplete: add error info
     Nothing -> traceM "this one" *> empty -- "reference to shared pair #" <> show n <> " with no preceding definition"
     Just r -> pure $ Pair r
-  findShare :: Int -> Parser m (Maybe (Ref m (Pair (Ref m))))
   findShare n = Map.lookup n <$> get
 
-expression :: MonadRef m => Parser m (Object (Ref m))
+expression :: MonadMutableRef m => Parser m (Object (Ref m))
 expression =  composedSymbols
           <|> lexeme sharedPair
           <|> quotedExpression
@@ -179,11 +181,11 @@ expression =  composedSymbols
 bom :: Parser m ()
 bom = void $ char '\xfeff'
 
-parse :: (MonadRef m, r ~ Ref m)
+parse :: (MonadMutableRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) (Object r))
 parse = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> expression <* eof)
 
-parseMany :: (MonadRef m, r ~ Ref m)
+parseMany :: (MonadMutableRef m, r ~ Ref m)
   => FilePath -> String -> m (Either (ParseErrorBundle String Void) [Object r])
 parseMany = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> many expression <* eof)
 
