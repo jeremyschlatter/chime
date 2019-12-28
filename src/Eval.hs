@@ -931,7 +931,7 @@ repl = getArgs >>= \case
     getExtendedInput :: String -> InputT IO (Maybe String)
     getExtendedInput prefix = handleInterrupt (newline *> getExtendedInput "")
       ((prefix <>) <$$> getInputLine (if prefix == "" then "> " else "| "))
-    isUnexpectedEOF :: ParseErrorBundle String Void -> Bool
+    isUnexpectedEOF :: ParseErrorBundle String e -> Bool
     isUnexpectedEOF b = case toList (bundleErrors b) of
       [TrivialError _ (Just EndOfInput) _] -> True
       _ -> False

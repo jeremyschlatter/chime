@@ -22,10 +22,14 @@ import Data hiding (string, number, o)
 
 type ParseState r = Map.Map Int (r (Pair r))
 
--- type Parser m = ParsecT Void String (StateT (Shares (Ref m)) m)
-type Parser m = ParsecT Void String (StateT (ParseState (Ref m)) m)
+data BelParseError = BelParseError String deriving (Eq, Ord)
 
-sc :: ParsecT Void String m ()
+instance ShowErrorComponent BelParseError where
+  showErrorComponent (BelParseError e) = e
+
+type Parser m = ParsecT BelParseError String (StateT (ParseState (Ref m)) m)
+
+sc :: Ord e => ParsecT e String m ()
 sc = L.space space1 (L.skipLineComment ";") empty
 
 lexeme :: Parser m a -> Parser m a
@@ -152,8 +156,8 @@ sharedPair :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
 sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
   tag :: Int -> Parser m (Object (Ref m))
   tag n = findShare n >>= \case
-    -- @incomplete: add error info
-    Just _ -> empty -- "duplicate definition of shared pair #" <> show n
+    Just _ -> customFailure $ BelParseError $
+      "duplicate definition of shared pair #" <> show n
     Nothing -> char '=' *> newRef (MkPair (Symbol Nil, Symbol Nil)) >>= \r -> do
       modify (Map.insert n r)
       p <- pair
@@ -161,8 +165,8 @@ sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
       pure (Pair r)
   ref :: Int -> Parser m (Object (Ref m))
   ref n = findShare n >>= \case
-    -- @incomplete: add error info
-    Nothing -> traceM "this one" *> empty -- "reference to shared pair #" <> show n <> " with no preceding definition"
+    Nothing -> customFailure $ BelParseError $
+      "reference to shared pair #" <> show n <> " with no preceding definition"
     Just r -> pure $ Pair r
   findShare n = Map.lookup n <$> get
 
@@ -182,12 +186,12 @@ bom :: Parser m ()
 bom = void $ char '\xfeff'
 
 parse :: (MonadMutableRef m, r ~ Ref m)
-  => FilePath -> String -> m (Either (ParseErrorBundle String Void) (Object r))
+  => FilePath -> String -> m (Either (ParseErrorBundle String BelParseError) (Object r))
 parse = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> expression <* eof)
 
 parseMany :: (MonadMutableRef m, r ~ Ref m)
-  => FilePath -> String -> m (Either (ParseErrorBundle String Void) [Object r])
+  => FilePath -> String -> m (Either (ParseErrorBundle String BelParseError) [Object r])
 parseMany = flip evalStateT Map.empty .: M.runParserT (optional bom *> sc *> many expression <* eof)
 
 isEmptyLine :: String -> Bool
-isEmptyLine = isJust . parseMaybe (sc *> eof)
+isEmptyLine = isJust . parseMaybe (sc @Void *> eof)
