@@ -90,7 +90,7 @@ surround :: String -> String -> Parser m a -> Parser m a
 surround a b x = lexLit a *> x <* lexLit b
 
 string :: MonadMutableRef m => Parser m (Object (Ref m))
-string = surround "\"" "\"" $
+string = (char '"' *>) $ (<* lexLit "\"") $
   many (Character <$> character' (regularChar <|> oneOf "#,`'\\.[](): !~|")) >>=
     pureListToObject
 
