@@ -877,10 +877,10 @@ readThenRunEval p c s = flip runEval s $ readThenEval p c
 builtinsIO :: IO EvalState
 builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
 
-bel :: FilePath -> IO (Either Error EvalState)
-bel f = preludeIO >>= \b -> readFile f >>= \s0 -> do
+bel :: FilePath -> EvalState -> IO (Either Error EvalState)
+bel f st = readFile f >>= \s0 -> do
   prog <- parseMany f s0 >>= either (die . errorBundlePretty) pure
-  (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
+  (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) st
   pure (x $> s)
 
 getOrCreateHistoryFile :: IO FilePath
@@ -902,17 +902,16 @@ preludeIO = do
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
-repl :: IO ()
-repl = getArgs >>= \case
-  [f] -> bel f >>= either die (const (pure ()))
+repl :: EvalState -> IO ()
+repl = withNativeFns >=> \st -> getArgs >>= \case
+  [f] -> bel f st >>= either die (const (pure ()))
   _:_:_ -> die "Sorry, I can only handle up to one file"
   [] -> do
-    s <- preludeIO
     hist <- getOrCreateHistoryFile
     runInputT ((defaultSettings @IO)
       { complete = noCompletion
       , historyFile = Just hist
-      }) $ withInterrupt $ go "" s where
+      }) $ withInterrupt $ go "" st where
     go :: String -> EvalState -> InputT IO ()
     go prefix s = getExtendedInput prefix >>= \case
       Nothing -> pure ()
