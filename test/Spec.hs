@@ -220,6 +220,10 @@ spec = do
       >> "(foo 'b)"
       > "((x . b))"
 
+    it "understands shared pair syntax" $ replTest $ []
+      >> "(let x '(a b c) `(f ,x ,x))"
+      > "(f #1=(a b c) #1)"
+
   describe "interpretation of bel.bel" do
     -- Interpret bel.bel and check that the functions it defines
     -- work as they are specified to in bellanguage.txt.
