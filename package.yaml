@@ -52,6 +52,7 @@ library:
   - megaparsec
   - mtl
   - parser-combinators
+  - template-haskell
   - text
   - time
   - transformers

@@ -197,6 +197,10 @@ infixr 4 .*
 a .| b = a .* ((.*) @m b "nil") where
 infixr 4 .|
 
+(><) :: MonadRef m => m (Object (Ref m)) -> m (Object (Ref m)) -> m (Object (Ref m))
+(><) = (.*)
+infixr 4 ><
+
 properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
 properList1 ref = readPair "properList1" ref >>=
   \(car, cdr) -> fmap (car :|) <$> properList cdr
