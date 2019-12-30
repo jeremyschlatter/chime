@@ -306,12 +306,6 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
             rep ('#' : show i <> "=")
           Nothing -> rep ""
         where
-          getPre = \case
-            "" -> pre
-            _ -> "("
-          getPost = \case
-            "" -> post
-            _ -> ")"
           rep ms =
             readRef ref' >>= \case
               Number n -> pure $ ms <> showNumber n
@@ -319,12 +313,13 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
               OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>=
                 (fmap (ms <>)) . reprShare
               MkPair (car, cdr) -> reprShare car >>= \car' ->
-                (\s -> (ms <> getPre ms <> s <> getPost ms)) . (car' <>)
+                (\s -> (ms <> pre <> s <> post)) . (car' <>)
                   <$> mcase2 (number, id) cdr \case
                     Case1of2 n -> pure (" . " <> showNumber n)
                     Case2of2 (Symbol Nil) -> pure ""
                     Case2of2 (Pair p') -> get >>= \st' -> case lookup p' st' of
                       Just (i, True) -> pure $ " . #" <> show i
+                      Just _ -> (" . " <>) <$> go "(" ")" p'
                       _ -> (" " <>) <$> go "" "" p'
                     Case2of2 x -> (" . " <>) <$> reprShare x
 
