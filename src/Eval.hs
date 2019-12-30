@@ -225,6 +225,9 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         _ -> pure $ Symbol Nil
       _ -> throwError "wrong number of arguments"
 
+  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      [] -> doDebug <%= not >>= toObject
+      _ -> tooManyArguments
   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
       [x] -> do
         start <- liftIO getCurrentTime
@@ -291,10 +294,11 @@ withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m 
 withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
-    Nothing -> case nm of
-      "time" -> (fmap Pair . newRef . OptimizedFunction) f >>= \x ->
+    Nothing ->
+      if nm `elem` ["time", "debug"]
+      then (fmap Pair . newRef . OptimizedFunction) f >>= \x ->
         (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
-      _ -> interpreterBug $ nm <> " was not present in the global state"
+      else interpreterBug $ nm <> " was not present in the global state"
     Just (_, p) -> case p of
       Pair ref -> readPair "native fns" ref >>= \n ->
         writeRef ref (OptimizedFunction (f {fnFallback = n})) $> s

@@ -60,6 +60,7 @@ data EvalState = EvalState
  , _locs :: [Maybe Bool]
  , _dyns :: Environment
  , _debug :: [String]
+ , _doDebug :: Bool
  , _vmark :: IORef (Pair IORef)
  , _ins :: IORef Stream
  , _outs :: IORef Stream
@@ -71,7 +72,7 @@ newStream :: (MonadRef m, Ref m ~ IORef) => Direction -> Handle -> m (IORef Stre
 newStream d h = newRef (MkStream h d 0 7)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
-emptyState = EvalState [] (pure []) [] [] []
+emptyState = EvalState [] (pure []) [] [] [] False
   <$> newRef (MkPair (Symbol Nil, Symbol Nil))
   <*> newStream In stdin
   <*> newStream Out stdout
