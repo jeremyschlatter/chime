@@ -139,17 +139,8 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       [_] -> tooFewArguments
       _:_:_:_ -> tooManyArguments
       [mn, mxs] -> runMaybeT (number mn) >>= \case
-        Just (((numerator &&& denominator) -> (n', 1)) :+ 0) | n' >= 0 -> let
-          go n = \case
-            Pair ref -> readPair "nth" ref >>= \(car, cdr) ->
-              if n == 1
-              then use locs >>= \case
-                Just _:rest -> (locs .= rest) *> (Pair ref ~| Sym @IORef 'a' "")
-                _ -> pure car
-              else go (n - 1) cdr
-            _ -> typecheckFailure
-          in go n' mxs
-        _ -> typecheckFailure
+        Just n -> nth n mxs
+        Nothing -> typecheckFailure
   , ("bitc",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       nextByte :: Stream -> EvalMonad (Either (Object IORef) Word8)
       nextByte (MkStream h _ _ idx) =
@@ -290,6 +281,20 @@ fn = \case
             x:xs -> x ~~ go xs
   _ -> tooFewArguments
 
+nth :: Number -> Object IORef -> EvalMonad (Object IORef)
+nth = \case
+  (((numerator &&& denominator) -> (n', 1)) :+ 0) | n' >= 0 -> let
+    go n = \case
+      Pair ref -> readPair "nth" ref >>= \(car, cdr) ->
+        if n == 1
+        then use locs >>= \case
+          Just _:rest -> (locs .= rest) *> (Pair ref ~| Sym @IORef 'a' "")
+          _ -> pure car
+        else go (n - 1) cdr
+      _ -> typecheckFailure
+    in go n'
+  _ -> const typecheckFailure
+
 withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
 withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
@@ -416,6 +421,7 @@ data Operator
   | Virfn Closure
   | TheContinuation (Object IORef -> EvalMonad (Object IORef))
   | TheOptimizedFunction (OptimizedFunction IORef)
+  | TheNumber Number
 
 data Closure = MkClosure Environment (Object IORef) (Object IORef)
 
@@ -679,7 +685,7 @@ operator = \case
     Pair ref -> readRef ref >>= \case
       Continuation c -> pure $ Just $ TheContinuation c
       OptimizedFunction f -> pure $ Just $ TheOptimizedFunction f
-      Number _ -> Virfn <$$> runMaybeT (virfn [Sym 'l' "it", Sym 'n' "um"])
+      Number n -> pure $ Just $ TheNumber n
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
         Just (toList -> l) -> runMaybeT $
@@ -833,6 +839,9 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
             destructure params argTree >>=
               either pure
                 (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+          TheNumber n -> case args of
+            [x] -> evaluate x >>= nth n
+            _ -> throwError "wrong number of arguments to nth"
           Virfn (MkClosure env params body) -> do
             (_, argTree) <- readPair "virfn args" ref
             (op ~| argTree) >>= destructure params >>=
