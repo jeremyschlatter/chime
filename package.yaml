@@ -65,6 +65,15 @@ executables:
     - -rtsopts
     dependencies:
     - chime
+  playground:
+    main:         Main.hs
+    source-dirs:  playground
+    ghc-options:
+    - -rtsopts
+    dependencies:
+    - chime
+    - scotty
+    - text
 
 tests:
   chime-test:
