@@ -1,6 +1,6 @@
-[![](https://github.com/jeremyschlatter/bel/workflows/CI/badge.svg)](https://github.com/jeremyschlatter/bel/actions?query=workflow%3ACI)
+[![](https://github.com/jeremyschlatter/chime/workflows/CI/badge.svg)](https://github.com/jeremyschlatter/chime/actions?query=workflow%3ACI)
 
-# bel
+# chime
 
 A hobby implementation of Paul Graham's [Bel](http://paulgraham.com/bel.html) programming language.
 

@@ -1,13 +1,13 @@
-name:                bel
+name:                chime
 version:             0.1.0.0
-github:              "jeremyschlatter/bel"
+github:              "jeremyschlatter/chime"
 author:              "Jeremy Schlatter"
 copyright:           "2019 Jeremy Schlatter"
 
 extra-source-files:
 - README.md
 
-description:         Please see the README on GitHub at <https://github.com/jeremyschlatter/bel#readme>
+description:         Please see the README on GitHub at <https://github.com/jeremyschlatter/chime#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -58,16 +58,16 @@ library:
   - transformers
 
 executables:
-  bel:
+  chime:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
     - -rtsopts
     dependencies:
-    - bel
+    - chime
 
 tests:
-  bel-test:
+  chime-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -75,7 +75,7 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - bel
+    - chime
     - hspec
     - HUnit
     - template-haskell
