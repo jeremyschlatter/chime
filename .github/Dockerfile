@@ -14,3 +14,12 @@ RUN stack build \
   transformers \
   hspec \
   HUnit
+RUN stack build \
+  containers \
+  directory \
+  file-embed \
+  filepath \
+  haskeline \
+  parser-combinators \
+  template-haskell \
+  time
