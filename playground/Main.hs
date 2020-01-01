@@ -16,7 +16,10 @@ belDotBelState = $(serializedBelDotBelState)
 main :: IO ()
 main = stringToState belDotBelState >>= either die pure >>= withNativeFns >>= \baseState ->
 -- main = builtinsIO >>= \baseState ->
-  scotty 3000 $
+  scotty 8080 do
+
     post "/" $ do
       body >>= liftIO . flip (readThenRunEval "") baseState . unpack . decodeUtf8
         >>= either pure repr . fst >>= text . pack
+
+    get "/_ah/health" $ text $ pack "ok"
