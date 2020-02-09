@@ -671,6 +671,22 @@ spec = do
       -- @performance: this takes ~2.5 seconds
       -- "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))"
         -- `is` "(-2 -2 -1 1 2 2)"
+      "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))" `is` "(-2 -2 -1 1 2 2)"
+      replTest $ []
+        >> "(set a (array '(2 3) 0))"
+        > "(lit arr (lit arr 0 0 0) (lit arr 0 0 0))"
+        >> "(a 1 1)"
+        > "0"
+        >> "(a 1)"
+        > "(lit arr 0 0 0)"
+        >> "(++ (a 1 1) 5)"
+        > "5"
+        >> "a"
+        > "(lit arr (lit arr 5 0 0) (lit arr 0 0 0))"
+        >> "(swap (a 1) (a 2))"
+        > "(lit arr 5 0 0)"
+        >> "a"
+        > "(lit arr (lit arr 0 0 0) (lit arr 5 0 0))"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
