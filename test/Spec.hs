@@ -18,6 +18,9 @@ spec :: Spec
 spec = do
 
   prelude <- runIO preludeIO
+  slow <- runIO $ lookupEnv "CHIME_INCLUDE_SLOW_TESTS" <&> \case
+    Nothing -> const $ pure ()
+    Just _ -> id
   let evalShouldBe = evalInShouldBe prelude
   let replTest = replTestWith prelude
 
@@ -461,11 +464,9 @@ spec = do
       -- "(+ .05 (/ 19 20))" `is` "1"
       "(len \"foo\")" `is` "3"
       "(pos \\a \"ask\")" `is` "1"
-      -- @performance: this test takes 1 second
-      -- "(map charn \"abc\")" `is` "(97 98 99)"
+      slow {- 0.25 seconds -} $ "(map charn \"abc\")" `is` "(97 98 99)"
       "(> 3/4 2/3)" `is` "t"
-      -- @performance: optimize non-numeric comparisons. this test
-      -- takes 13 seconds.
+      -- @incomplete: can't handle non-numeric comparisons
       -- "(< 'apple 'apply)" `is` "t"
       "((rfn foo (x) (if (no x) 0 (inc:foo:cdr x))) '(a b c))" `is` "3"
       "((afn (x) (if (no x) 0 (inc:self:cdr x))) '(a b c))" `is` "3"
@@ -476,8 +477,7 @@ spec = do
         > "a"
         >> "x"
         > "(b c)"
-      -- @performance: this test takes one second. optimize pint.
-      -- "(runs pint '(1 1 0 0 0 1 1 1 0))" `is` "((1 1) (0 0 0) (1 1 1) (0))"
+      "(runs pint '(1 1 0 0 0 1 1 1 0))" `is` "((1 1) (0 0 0) (1 1 1) (0))"
       "(tokens \"the age of the essay\")"
         `is` "(\"the\" \"age\" \"of\" \"the\" \"essay\")"
       "(dups \"abracadabra\")" `is` "\"abr\""
@@ -573,7 +573,7 @@ spec = do
         > "t"
 
       -- @incomplete: the output say (quote b) instead, here and elsewhere.
-      -- @performance: this test takes 1.5 seconds
+      -- also doesn't work
       -- "(read '(\"[cons _ 'b]\"))" `is` "(fn (_) (cons _ 'b))"
 
       -- @incomplete: the next two examples do not work yet
@@ -648,21 +648,18 @@ spec = do
       -- "(let user 'Dave (pr \"I'm sorry, \" user \". I'm afraid I can't do that.\"))"
         -- `is` "I'm sorry, Dave. I'm afraid I can't do that."
 
-      -- @performance: this test takes 1.5 seconds
-      -- "(drop 2 '(a b c d e))" `is` "(c d e)"
+      slow {- 0.25 seconds -} $ "(drop 2 '(a b c d e))" `is` "(c d e)"
       "(nth 2 '(a b c d e))" `is` "b"
       "(2 '(a b c))" `is` "b"
       "(nchar 65)" `is` "\\A"
-      -- @performance: this test takes 1.5 seconds
-      -- "(first 2 '(a b c d e))" `is` "(a b)"
+      "(first 2 '(a b c d e))" `is` "(a b)"
       [r|
       (catch
         (throw 'a)
         (/ 1 0))
       |] `is` "a"
-      -- @performance: the next two tests take 3-4 seconds each
-      -- "(cut \"foobar\" 2 4)" `is` "\"oob\""
-      -- "(cut \"foobar\" 2 -1)" `is` "\"ooba\""
+      "(cut \"foobar\" 2 4)" `is` "\"oob\""
+      "(cut \"foobar\" 2 -1)" `is` "\"ooba\""
       [r|
       (let x nil
            (each y '(a b c)
@@ -672,10 +669,8 @@ spec = do
       "((flip -) 1 10)" `is` "9"
       "((part cons 'a) 'b)" `is` "(a . b)"
       "((trap cons 'a) 'b)" `is` "(b . a)"
-      -- @performance: this takes about 0.3 seconds
       "(map (upon 3.5) (list floor ceil))" `is` "(3 4)"
-      -- @performance: this takes about 1.5 seconds
-      -- "(mod 17 3)" `is` "2"
+      "(mod 17 3)" `is` "2"
 
       -- @incomplete: uncomment these when tests capture stdout
       -- [r|
@@ -706,8 +701,7 @@ spec = do
 
       "(let x '(a b c d e) (drain (pop x)))" `is` "(a b c d e)"
       "(let x '(a b c d e) (drain (pop x) is!d))" `is` "(a b c)"
-      -- @performance: this test takes about half a second
-      -- "(^w 2+3i 3)" `is` "-46+9i"
+      "(^w 2+3i 3)" `is` "-46+9i"
       [r|
       (let x '(a b c d e)
         (wipe 2.x 4.x)
@@ -717,8 +711,7 @@ spec = do
       "(let x '(a b c) (pop (cdr x)) x)" `is` "(a c)"
       "(let x '(1 2 3 4 5) (clean odd x) x)" `is` "(2 4)"
       "(let (x y z) '(a b c) (swap x y z) (list x y z))" `is` "(b c a)"
-      -- @performance: this test takes ~0.8 seconds to run
-      -- "(let x '(a b c d e) (swap 2.x 4.x) x)" `is` "(a d c b e)"
+      slow {- ~.15 seconds -} $ "(let x '(a b c d e) (swap 2.x 4.x) x)" `is` "(a d c b e)"
       "(adjoin 'a '(a b c))" `is` "(a b c)"
       "(adjoin 'z '(a b c))" `is` "(z a b c)"
       [r|
@@ -727,21 +720,15 @@ spec = do
         (pushnew 'z x)
         x)
       |] `is` "(z a b c d e)"
-      -- @performance: this takes ~0.25 seconds
       "(dedup \"abracadabra\")" `is` "\"abrcd\""
-      -- @performance: this takes ~1 second
-      -- "(insert < 3 '(1 2 4 5))" `is` "(1 2 3 4 5)"
-      -- @performance: this takes ~2 seconds
-      -- "(sort < '(5 1 3 2 4))" `is` "(1 2 3 4 5)"
+      "(insert < 3 '(1 2 4 5))" `is` "(1 2 3 4 5)"
+      "(sort < '(5 1 3 2 4))" `is` "(1 2 3 4 5)"
       "(sort (of > len) '((a b) (c) (d e) (f)))" `is` "((a b) (d e) (c) (f))"
       "(best > '(5 1 3 2 4))" `is` "5"
       "(best (of > len) '((a) (b c) (d e) (f)))" `is` "(b c)"
       "(max 3 7 2 1)" `is` "7"
       "(min 3 7 2 1)" `is` "1"
       "(map upon.3 (list even odd))" `is` "(nil t)"
-      -- @performance: this takes ~2.5 seconds
-      -- "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))"
-        -- `is` "(-2 -2 -1 1 2 2)"
       "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))" `is` "(-2 -2 -1 1 2 2)"
 
 --       replTest $ []

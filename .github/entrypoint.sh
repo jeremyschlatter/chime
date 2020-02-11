@@ -1,3 +1,3 @@
 cp -R .stack-work /app
 cd /app
-stack test
+CHIME_INCLUDE_SLOW_TESTS=1 stack test
