@@ -90,8 +90,10 @@ spec = do
       "(id (join 'a 'b) (join 'a 'b))" `is` "nil"
       "(car '(a . b))" `is` "a"
       "(car '(a b))" `is` "a"
+      "(car nil)" `is` "nil"
       "(cdr '(a . b))" `is` "b"
       "(cdr '(a b))" `is` "(b)"
+      "(cdr nil)" `is` "nil"
       "(type 'a)" `is` "symbol"
       "(type '(a))" `is` "pair"
       "(type \\a)" `is` "char"
@@ -102,14 +104,16 @@ spec = do
       "(apply join '(a b))" `is` "(a . b)"
       "(apply join 'a '(b))" `is` "(a . b)"
       "(dyn x 'z (join x 'b))" `is` "(z . b)"
-      "((lit clo ((x . a)) (y) (join x y)) 'b)" `is` "(a . b)"
+      "((lit clo ((x . a)) (y) (cons x y)) 'b)" `is` "(a . b)"
+      "((list 'lit 'clo nil '(x) '(+ x 1)) 2)" `is` "3"
       "'for|2" `is` "(t for 2)"
-      -- @consider: the Bel language guide prints this as "(a (quote b) c)"
-      -- I prefer the version here, but is that spec-compliant? Same elsewhere.
+      -- @incomplete: this should be "(a (quote b) c)"
+      -- same elsewhere
       "'a!b.c" `is` "(a 'b c)"
       "'!a" `is` "(upon 'a)"
       "'a:b:c" `is` "(compose a b c)"
       "'x|~f:g!a" `is` "(t x ((compose (compose no f) g) 'a))"
+      "(+ 8 5)" `is` "13"
 
     it "evaluates other examples" do
       "(nom)" `is` "\"nil\""
@@ -130,6 +134,11 @@ spec = do
       "(mac n p e)" `is` "(lit mac (lit clo nil p e))"
       "'(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
       "(dyn x 'a (where x))" `is` "((x . a) d)"
+      "(+ (- 5 2) 7)" `is` "10"
+      "(car 'x)" `is` "<error>"
+      "(car \\x)" `is` "<error>"
+      "(cdr 'x)" `is` "<error>"
+      "(cdr \\x)" `is` "<error>"
 
   describe "multi-line repl sessions" do
 
@@ -237,6 +246,13 @@ spec = do
     let (>) = replOutput
 
     it "reproduces literal repl examples from The Bel Language guide" do
+      replTest $ []
+        >> "(set a 10)"
+        > "..."
+        >> "a"
+        > "10"
+        >> "'a"
+        > "a"
       "(no nil)" `is` "t"
       "(no 'a)" `is` "nil"
       "(atom \\a)" `is` "t"
@@ -248,6 +264,7 @@ spec = do
       "(all atom '(a (b c) d))" `is` "nil"
       "(some atom '((a b) (c d)))" `is` "nil"
       "(some atom '((a b) c (d e)))" `is` "(c (d e))"
+      "(all atom 'a)" `is` "<error>"
       "(reduce join '(a b c))" `is` "(a b . c)"
       "(cons 'a '(b c))" `is` "(a b c)"
       "(join 'a '(b c))" `is` "(a b c)"
@@ -273,6 +290,16 @@ spec = do
         > "a"
         >> "x"
         > "a"
+      replTest $ []
+        >> "(def bar (x) ((list 'lit 'clo scope '(y) '(+ x y)) 2))"
+        > "..."
+        >> "(bar 3)"
+        > "5"
+      replTest $ []
+        >> "(def bar (x) ((fn (y) (+ x y)) 2))"
+        > "..."
+        >> "(bar 3)"
+        > "5"
       "(or 'a (prn 'hello))" `is` "a"
       "(apply or '(nil nil))" `is` "nil"
       "(apply or '(nil a b))" `is` "a"
@@ -304,6 +331,7 @@ spec = do
       "(with (x 'a  \
       \       y 'b) \
       \  (cons x y))" `is` "(a . b)"
+      "(let x 'a (with (x 'b y x) y))" `is` "a"
       "(keep odd '(1 2 3 4 5))" `is` "(1 3 5)"
       "(rem \\a \"abracadabra\")" `is` "\"brcdbr\""
       "(rem 4 '(5 3 1 2 4) >=)" `is` "(3 1 2)"
@@ -377,6 +405,7 @@ spec = do
       "(quote a b)" `is` "<error>"
       "(let x 'a (where x))" `is` "((x . a) d)"
       -- changed from the spec: `x` -> `foo`, since `do` has a local var called `x`
+      -- @incomplete: ^ is this the right thing to do?
       [r|
       (dyn foo 'a
         (do (set foo 'b)
@@ -543,7 +572,7 @@ spec = do
         >> "(id (2 x) (3 x))"
         > "t"
 
-      -- @consider: should the output say (quote b) instead?
+      -- @incomplete: the output say (quote b) instead, here and elsewhere.
       -- @performance: this test takes 1.5 seconds
       -- "(read '(\"[cons _ 'b]\"))" `is` "(fn (_) (cons _ 'b))"
 
@@ -556,6 +585,46 @@ spec = do
 
       -- @incomplete: parse a leading dot as an implicit upon
       -- "(let x '(a . b) (map .x (list car cdr)))" `is` "(a b)"
+
+      replTest $ []
+        >> [r|
+
+          (def bqex1 (e)
+            (if (no e)   (list nil nil)
+                (atom e) (list (list 'quote e) nil)
+                         (case (car e)
+                           comma    (list (cadr e) t)
+                           comma-at (list (list 'splice (cadr e)) t)
+                                    (bqexpair1 e))))
+          |]
+        > "..."
+        >> [r|
+
+          (def bqexpair1 (e)
+            (with ((a achange) (bqex1 (car e))
+                   (d dchange) (bqex1 (cdr e)))
+              (if (or achange dchange)
+                  (list (if (caris d 'splice)
+                            (if (caris a 'splice)
+                                `(apply append (spa ,(cadr a)) (spd ,(cadr d)))
+                                `(apply cons ,a (spd ,(cadr d))))
+                            (caris a 'splice)
+                            `(append (spa ,(cadr a)) ,d)
+                            `(cons ,a ,d))
+                        t)
+                  (list (list 'quote e) nil))))
+          |]
+        > "..."
+        >> "(bqex1 '(x y z))"
+        -- @incomplete: this should be the commented-out version instead
+        > "('(x y z) nil)"
+        -- > "((quote (x y z)) nil)"
+        >> "(bqex1 '(comma x))"
+        > "(x t)"
+        >> "(bqex1 '(comma-at x))"
+        > "((splice x) t)"
+        >> "(let x '(a b c) `,@x)"
+        > "<error>"
 
       "(let x '(a b c) `,@x)" `is` "<error>"
       "(let x '(b c) `(a . ,@x))" `is` "<error>"
@@ -576,6 +645,8 @@ spec = do
       -- @incomplete: uncomment when tests capture stdout
       -- "(with (x \"foo\" y 'bar) (prn 'x x 'y y))"
         -- `is` "x \"foo\" y bar\nbar"
+      -- "(let user 'Dave (pr \"I'm sorry, \" user \". I'm afraid I can't do that.\"))"
+        -- `is` "I'm sorry, Dave. I'm afraid I can't do that."
 
       -- @performance: this test takes 1.5 seconds
       -- "(drop 2 '(a b c d e))" `is` "(c d e)"
@@ -672,6 +743,29 @@ spec = do
       -- "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))"
         -- `is` "(-2 -2 -1 1 2 2)"
       "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))" `is` "(-2 -2 -1 1 2 2)"
+
+--       replTest $ []
+--         >> "(to \"foo\" (map prn '(a b c)))"
+--         > "..."
+--         >> "(from \"foo\" (drain (read)))"
+--         > "(a b c)"
+--         >> "(from \"foo\" (readall))"
+--         > "(a b c)"
+
+--       replTest $ []
+--         >> "(to \"example.bel\" (print '(def foo (x) (cons 'a x))))"
+--         > "nil"
+--         >> "(load \"example.bel\")"
+--         > "nil"
+--         >> "(foo 'b)"
+--         > "(a . b)"
+
+--       replTest $ []
+--         >> "(record (pr 'what) (pr \\ ) (pr \"he said\"))"
+--         > "\"what he said\""
+--         >> "(prs 'what \\ \"he said\")"
+--         > "\"what he said\""
+
       replTest $ []
         >> "(set a (array '(2 3) 0))"
         > "(lit arr (lit arr 0 0 0) (lit arr 0 0 0))"
@@ -687,6 +781,44 @@ spec = do
         > "(lit arr 5 0 0)"
         >> "a"
         > "(lit arr (lit arr 0 0 0) (lit arr 5 0 0))"
+
+      replTest $ []
+        >> "(set k (table '((a . b) (c . d))))"
+        > "(lit tab (a . b) (c . d))"
+        >> "(k 'a)"
+        > "b"
+        >> "(k 'z)"
+        > "nil"
+        >> "(map k '(a c))"
+        > "(b d)"
+        -- >> "(set k!a 1 k!z 2)"
+        -- > "2"
+        -- >> "k"
+        -- > "(lit tab (z . 2) (a . 1) (c . d))"
+        -- >> "(tabrem k 'z)"
+        -- > "((a . 1) (c . d))"
+        -- >> "k"
+        -- > "(lit tab (a . 1) (c . d))"
+
+--       replTest $ []
+--         >> "(tem point x 0 y 0)"
+--         > "..."
+--         >> "(set p (make point))"
+--         > "(lit tab (x . 0) (y . 0))"
+--         >> "(set q (make point x 1 y 5))"
+--         > "(lit tab (x . 1) (y . 5))"
+--         >> "p!x"
+--         > "0"
+--         >> "(++ p!x)"
+--         > "1"
+--         >> "(swap p!x p!y)"
+--         > "1"
+--         >> "p"
+--         > "(lit tab (x . 0) (y . 1))"
+--         >> "(set above (of > !y))"
+--         > "..."
+--         >> "(above q p (make point))"
+--         > "t"
 
     it "implements behavior described in The Bel Language guide" do
       "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
@@ -715,7 +847,106 @@ spec = do
         >> "(fnd [= (car _) \\a] '(\"pear\" \"apple\" \"grape\"))"
         > "\"apple\""
 
-    -- @incomplete: add tests for code that touches the filesystem
+    it "correctly interprets belexamples.txt" do
+      replTest $ []
+        >> "(cons 'a 'b '(c d e))"
+        > "(a b c d e)"
+        >> "(cons \\h \"ello\")"
+        > "\"hello\""
+        >> "(2 '(a b c))"
+        > "b"
+        >> "(set w '(a (b c) d (e f)))"
+        > "(a (b c) d (e f))"
+        >> "(find pair w)"
+        > "(b c)"
+        >> "(pop (find pair w))"
+        > "b"
+        >> "w"
+        > "(a (c) d (e f))"
+
+--         >> "(dedup:sort < \"abracadabra\")"
+--         > "\"abcdr\""
+
+--         >> "(+ .05 19/20)"
+--         > "1"
+
+        >> "(map (upon 2 3) (list + - * /))"
+        > "(5 -1 6 2/3)"
+        >> "(let x 'a (cons x 'b))"
+        > "(a . b)"
+        >> "(with (x 1 y 2) (+ x y))"
+        > "3"
+        >> "(let ((x y) . z) '((a b) c) (list x y z))"
+        > "(a b (c))"
+        >> "((fn (x) (cons x 'b)) 'a)"
+        > "(a . b)"
+        >> "((fn (x|symbol) (cons x 'b)) 'a)"
+        > "(a . b)"
+        >> "((fn (x|int) (cons x 'b)) 'a)"
+        > "<error>"
+        -- >> "((fn (f x|f) (cons x 'b)) sym 'a)"
+        >> "((fn (f x|f) (cons x 'b)) symbol 'a)"
+        > "(a . b)"
+        >> "((macro (v) `(set ,v 7)) x)"
+        > "7"
+        >> "x"
+        > "7"
+        >> "(let m (macro (x) (sym (append (nom x) \"ness\"))) (set (m good) 10))"
+        > "10"
+        >> "goodness"
+        > "10"
+        >> "(apply or '(t nil))"
+        > "t"
+        >> "(best (of > len) '((a b) (a b c d) (a) (a b c)))"
+        > "(a b c d)"
+        >> "(!3 (part + 2))"
+        > "5"
+        >> "(to \"testfile\" (print 'hello))"
+        > "nil"
+        -- >> "(from \"testfile\" (read))"
+        -- > "hello"
+        >> "(set y (table))"
+        > "(lit tab)"
+        >> "(set y!a 1 y!b 2)"
+        > "2"
+        -- >> "(map y '(a b))"
+        -- > "(1 2)"
+        -- >> "(map ++:y '(a b))"
+        -- > "(2 3)"
+        -- >> "y!b"
+        -- > "3"
+        >> "(set z (array '(2 2) 0))"
+        > "(lit arr (lit arr 0 0) (lit arr 0 0))"
+        >> "(z 1 1)"
+        > "0"
+        >> "(for x 1 2 (for y 1 2 (set (z x y) (+ (* x 10) y))))"
+        > "nil"
+        >> "(z 1 1)"
+        > "11"
+        >> "(swap (z 1) (z 2))"
+        > "(lit arr 11 12)"
+        >> "(z 1 1)"
+        > "21"
+
+    -- @incomplete add tests for code that touches the filesystem
+
+    -- @incomplete add these tests:
+    --
+    --   (prn 1) will return 1, but before doing so will print it.
+    --   (stat x)
+    --   (coin)
+    --   (sys x)
+    --   (thread x)
+    --   multiple expression body fn's:
+    --    (fn (x)
+    --      (prn 'hello)
+    --      (cons 'a x))
+    --
+    --   should be able to run the `bel` function
+    --     - w/o problems with backquoting
+    --     - should behave the same as native on a range of inputs
+    --       - for example, could run everything in this test
+    --         suite through bel as well and check consistency
 
 
 -- ----------------------------------------------------------------------------
