@@ -62,7 +62,7 @@ composedSymbols = let
   s3 = sepBy1 s2 (char ':') >>= compose
   -- . and !
   s4 :: Parser m (Object (Ref m))
-  s4 = bisequence (bisequence (optional (dotBang (pure ())), s3), many (dotBang s3)) >>= \case
+  s4 = bisequence (bisequence (optional (dotBang' (pure ())), s3), many (dotBang s3)) >>= \case
     ((Just f, x), xs) -> go (Sym 'u' "pon") ((f $> x) : xs)
     ((Nothing, x), []) -> pure x
     ((Nothing, x), xs) -> go x xs
@@ -80,6 +80,7 @@ composedSymbols = let
       a :| b:cs -> listToObject [pure (Sym 't' ""), pure a, go (b:|cs)]
   dotBang :: Parser m a -> Parser m (DotBang a)
   dotBang = (((char '.' $> Dot) <|> (char '!' $> Bang)) <*>)
+  dotBang' = ((try (char '.' *> notFollowedBy digitChar $> Dot) <|> (char '!' $> Bang)) <*>)
   compose :: NonEmpty (Object (Ref m)) -> Parser m (Object (Ref m))
   compose = \case
     x :| [] -> pure x
@@ -97,7 +98,7 @@ string = (char '"' *>) $ (<* lexLit "\"") $
 pair :: MonadMutableRef m => Parser m (Pair (Ref m))
 pair = surround "(" ")" pair' where
   pair' = liftA2 (curry MkPair) expression $
-    (lexLit "." *> expression) <|> (pair' >>= fmap Pair . newRef) <|> (pure $ Symbol Nil)
+    (lexLit ". " *> expression) <|> (pair' >>= fmap Pair . newRef) <|> (pure $ Symbol Nil)
 
 character' :: Parser m Char -> Parser m Character
 character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescaped where
@@ -147,10 +148,18 @@ number = lexeme (complex >>= toObject) where
   ratio :: Parser m Rational
   ratio = bisequence (integer, char '/' *> integer) <&> uncurry (%)
   decimal :: Parser m Rational
-  decimal = toRational <$> L.scientific
+  decimal = (,) <$> opt integer <*> opt decimalPart >>= \case
+    (Nothing, Nothing) -> empty
+    (z, r) -> pure $ ((fromMaybe 0 z) % 1) + fromMaybe 0 r
+  decimalPart :: Parser m Rational
+  decimalPart = char '.' *> M.some (read . pure <$> digitChar) <&> sumDecimalDigits 10
+  sumDecimalDigits :: Integer -> [Integer] -> Rational
+  sumDecimalDigits base = \case
+    [] -> 0
+    x:xs -> (x % base) + sumDecimalDigits (base * 10) xs
   integer :: Parser m Integer
   integer = L.decimal
-  opt p = fmap Just p <|> pure Nothing
+  opt p = fmap Just (try p) <|> pure Nothing
 
 sharedPair :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
 sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where

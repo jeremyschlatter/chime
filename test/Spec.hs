@@ -63,6 +63,8 @@ spec = do
       "(\\\")" `is` "\"\\\"\""
       "\";\"" `is` "\";\""
       "((f . #1=(a b)) #1)" `is` "((f . #1=(a b)) #1)"
+      "(+ .5)" `is` "(+ 1/2)"
+      "2.x" `is` "(2 x)"
 
   describe "evaluation" do
 
@@ -117,6 +119,7 @@ spec = do
       "(+ 8 5)" `is` "13"
 
     it "evaluates other examples" do
+      "(type (car:car '(2.x)))" `is` "pair"
       "(nom)" `is` "\"nil\""
       "(if)" `is` "nil"
       "(if 'a)" `is` "a"
@@ -458,8 +461,7 @@ spec = do
               '(a nil '(b c)))|] `is` "(atom empty pair)"
       "(match '(a (b) c d) (list 'a pair 'c t))" `is` "t"
       "(split (is \\a) \"frantic\")" `is` "(\"fr\" \"antic\")"
-      -- @incomplete: parse numbers starting with .
-      -- "(+ .05 (/ 19 20))" `is` "1"
+      "(+ .05 (/ 19 20))" `is` "1"
       "(len \"foo\")" `is` "3"
       "(pos \\a \"ask\")" `is` "1"
       slow {- 0.25 seconds -} $ "(map charn \"abc\")" `is` "(97 98 99)"
