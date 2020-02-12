@@ -269,7 +269,6 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
   reprShare ref = do
     mb <- lift $ runMaybeT $
       (MaybeT (string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""))
-      <|> maybeQuoted "quote" "'"
       <|> maybeQuoted "~backquote" "`"
       <|> maybeQuoted' "~comma" ","
       <|> maybeQuoted' "~splice" ",@"

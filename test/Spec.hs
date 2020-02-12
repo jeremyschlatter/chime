@@ -45,12 +45,12 @@ spec = do
       "(a b . c)" `is` "(a b . c)"
       "(\\h \\e \\l \\l \\o)" `is` "\"hello\""
       "\"hello\"" `is` "\"hello\""
-      "'a" `is` "'a"
+      "'a" `is` "(quote a)"
       "[f _ x]" `is` "(fn (_) (f _ x))"
       "(lit num (+ (t t) (t t t)) (+ () (t)))" `is` "2/3"
       "a.b" `is` "(a b)"
-      "a!b" `is` "(a 'b)"
-      "c|isa!cont" `is` "(t c (isa 'cont))"
+      "a!b" `is` "(a (quote b))"
+      "c|isa!cont" `is` "(t c (isa (quote cont)))"
       "(id 2.x 3.x)" `is` "(id (2 x) (3 x))"
 
     it "parses and prints other examples" do
@@ -110,12 +110,10 @@ spec = do
       "((lit clo ((x . a)) (y) (cons x y)) 'b)" `is` "(a . b)"
       "((list 'lit 'clo nil '(x) '(+ x 1)) 2)" `is` "3"
       "'for|2" `is` "(t for 2)"
-      -- @incomplete: this should be "(a (quote b) c)"
-      -- same elsewhere
-      "'a!b.c" `is` "(a 'b c)"
-      "'!a" `is` "(upon 'a)"
+      "'a!b.c" `is` "(a (quote b) c)"
+      "'!a" `is` "(upon (quote a))"
       "'a:b:c" `is` "(compose a b c)"
-      "'x|~f:g!a" `is` "(t x ((compose (compose no f) g) 'a))"
+      "'x|~f:g!a" `is` "(t x ((compose (compose no f) g) (quote a)))"
       "(+ 8 5)" `is` "13"
 
     it "evaluates other examples" do
@@ -572,9 +570,8 @@ spec = do
         >> "(id (2 x) (3 x))"
         > "t"
 
-      -- @incomplete: the output say (quote b) instead, here and elsewhere.
-      -- also doesn't work
-      -- "(read '(\"[cons _ 'b]\"))" `is` "(fn (_) (cons _ 'b))"
+      -- doesn't work yet
+      -- "(read '(\"[cons _ (quote b)]\"))" `is` "(fn (_) (cons _ 'b))"
 
       -- @incomplete: the next two examples do not work yet
       -- [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
@@ -616,9 +613,7 @@ spec = do
           |]
         > "..."
         >> "(bqex1 '(x y z))"
-        -- @incomplete: this should be the commented-out version instead
-        > "('(x y z) nil)"
-        -- > "((quote (x y z)) nil)"
+        > "((quote (x y z)) nil)"
         >> "(bqex1 '(comma x))"
         > "(x t)"
         >> "(bqex1 '(comma-at x))"
@@ -633,7 +628,7 @@ spec = do
       -- "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
 
       "(bqex '(bquote (comma (comma x))) nil)"
-        `is` "((list 'bquote (list 'comma x)) t)"
+        `is` "((list (quote bquote) (list (quote comma) x)) t)"
       "(let x '(a b c) `,,x)" `is` "<error>"
       "1.5" `is` "3/2"
       "\"foo\"" `is` "\"foo\""
@@ -808,7 +803,7 @@ spec = do
 --         > "t"
 
     it "implements behavior described in The Bel Language guide" do
-      "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons 'a x))"
+      "(fn (x) (cons 'a x))" `is` "(lit clo nil (x) (cons (quote a) x))"
       "((fn (x) (cons 'a x)) 'b)" `is` "(a . b)"
       "((lit clo nil (y) (fn (x) (cons y x))) 'a)" `is` "(lit clo ((y . a)) (x) (cons y x))"
       "(let y 'a (fn (x) (cons y x)))" `is` "(lit clo ((y . a)) (x) (cons y x))"
