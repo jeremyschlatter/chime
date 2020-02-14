@@ -165,6 +165,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
+
   , ("parsenum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       symT = \case
         (Sym 't' "") -> pure ()
@@ -176,10 +177,11 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
             -- @incomplete: handle bases other than 10
             (Just s, Just (length -> n)) | n == 10 ->
-              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty >>=
-                either (throwError . errorBundlePretty) pure
+              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
+                fromRight (Symbol Nil)
             _ -> typecheckFailure
         _:_:_:_ -> tooManyArguments
+
   , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [] -> tooFewArguments
       _:_:_ -> tooManyArguments

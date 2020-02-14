@@ -571,8 +571,8 @@ spec = do
         >> "(id (2 x) (3 x))"
         > "t"
 
-      -- doesn't work yet
-      -- "(read '(\"[cons _ (quote b)]\"))" `is` "(fn (_) (cons _ 'b))"
+      slow {- 0.2 seconds -} $
+        "(read '(\"[cons _ (quote b)]\"))" `is` "(fn (_) (cons _ (quote b)))"
 
       -- @incomplete: the next two examples do not work yet
       -- [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
