@@ -579,8 +579,7 @@ spec = do
 
       "'¦foo bar¦" `is` "¦foo bar¦"
 
-      -- @incomplete: parse a leading dot as an implicit upon
-      -- "(let x '(a . b) (map .x (list car cdr)))" `is` "(a b)"
+      "(let x '(a . b) (map .x (list car cdr)))" `is` "(a b)"
 
       replTest $ []
         >> [r|
