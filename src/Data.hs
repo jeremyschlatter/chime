@@ -259,7 +259,14 @@ class Repr r x where
   reprShare :: (MonadRef m, r ~ Ref m) => x -> StateT (Shares r) m String
   reprShare = lift . repr
 instance Repr r Symbol where
-  repr = pure . toList . unSymbol
+  repr x = let
+    s = toList $ unSymbol $ x
+    -- @incomplete: This is not all of the cases in which
+    --   the vertical bar escape is required.
+    --   This also does not escape vertical bars embedded in
+    --   the symbol.
+    r = if elem ' ' s then "¦" <> s <> "¦" else s
+    in pure r
 instance EqRef r' => Repr r' (r' (Pair r')) where
   repr :: (EqRef r, MonadRef m, r ~ Ref m) => r (Pair r) -> m String
   repr ref = collectPairs ref >>= evalStateT (reprShare ref)

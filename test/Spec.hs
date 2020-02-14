@@ -577,8 +577,7 @@ spec = do
       [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
       [r|(mem \\ "foo\"bar")|] `is` "nil"
 
-      -- @incomplete: parse vertical bar delimiters
-      -- "'¦foo bar¦" `is` "¦foo bar¦"
+      "'¦foo bar¦" `is` "¦foo bar¦"
 
       -- @incomplete: parse a leading dot as an implicit upon
       -- "(let x '(a . b) (map .x (list car cdr)))" `is` "(a b)"
@@ -926,6 +925,9 @@ spec = do
     --     - should behave the same as native on a range of inputs
     --       - for example, could run everything in this test
     --         suite through bel as well and check consistency
+    --
+    --   parse and print more exotic symbols, including symbols
+    --   with \¦ characters embedded in them
 
 
 -- ----------------------------------------------------------------------------

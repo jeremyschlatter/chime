@@ -41,13 +41,16 @@ lexLit = void <$> L.symbol sc
 regularChar :: Parser m Char
 regularChar = (alphaNumChar <|> oneOf "$%&*+-/;<=>?@^_{}¦") <?> "regular character"
 
+nonVBar :: Parser m Char
+nonVBar = (alphaNumChar <|> oneOf "$%&*+-/;<=>?@^_{}") <?> "regular character"
+
 data DotBang a = Dot a | Bang a deriving Functor
 
-composedSymbols :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
+composedSymbols :: forall m. MonadRef m => Parser m (Object (Ref m))
 composedSymbols = let
   -- regular symbols
   s0 :: Parser m (Object (Ref m))
-  s0 = (some1 regularChar <&> Symbol . MkSymbol)
+  s0 = barQuotedSymbol <|> (some1 regularChar <&> Symbol . MkSymbol)
        <|> try (lexLit "(" *> lexLit ")" $> Symbol Nil)
   -- numbers
   s1 :: Parser m (Object (Ref m))
@@ -90,7 +93,11 @@ composedSymbols = let
 surround :: String -> String -> Parser m a -> Parser m a
 surround a b x = lexLit a *> x <* lexLit b
 
-string :: MonadMutableRef m => Parser m (Object (Ref m))
+barQuotedSymbol :: MonadRef m => Parser m (Object (Ref m))
+barQuotedSymbol = (char '¦' *>) $ (<* lexLit "¦") $
+  some1 (nonVBar <|> oneOf "#,`'\\.[](): !~|") <&> Symbol . MkSymbol
+
+string :: MonadRef m => Parser m (Object (Ref m))
 string = (char '"' *>) $ (<* lexLit "\"") $
   many (Character <$> character' (regularChar <|> oneOf "#,`'\\.[](): !~|")) >>=
     pureListToObject
@@ -118,7 +125,7 @@ backQuotedList = char '`' *> surround "(" ")" (many expression) >>= pureListToOb
   -- @incomplete: implement this in a way that cannot clash with user symbols
   ("~backquote" .|)
 
-mkPair' :: MonadMutableRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
+mkPair' :: MonadRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
 mkPair' a b = fmap Pair $ newRef $ MkPair $ (a, b)
 
 commaExpr :: MonadMutableRef m => Parser m (Object (Ref m))
@@ -135,7 +142,7 @@ bracketFn = lexChar '[' *> (many expression >>= wrap) <* lexChar ']' where
   pl = pureListToObject
   lexChar = lexeme . char
 
-number :: MonadMutableRef m => Parser m (Object (Ref m))
+number :: MonadRef m => Parser m (Object (Ref m))
 number = lexeme (complex >>= toObject) where
   complex :: Parser m (Complex Rational)
   complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
@@ -186,6 +193,7 @@ expression =  composedSymbols
           <|> backQuotedList
           <|> commaExpr
           <|> string
+          -- <|> barQuotedSymbol
           <|> bracketFn
           <|> number
           <|> (pair >>= fmap Pair . newRef)
