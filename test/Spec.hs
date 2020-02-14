@@ -574,9 +574,8 @@ spec = do
       slow {- 0.2 seconds -} $
         "(read '(\"[cons _ (quote b)]\"))" `is` "(fn (_) (cons _ (quote b)))"
 
-      -- @incomplete: the next two examples do not work yet
-      -- [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
-      -- [r|(mem \\ "foo\"bar")|] `is` "nil"
+      [r|"foo\"bar"|] `is` [r|"foo\"bar"|]
+      [r|(mem \\ "foo\"bar")|] `is` "nil"
 
       -- @incomplete: parse vertical bar delimiters
       -- "'¦foo bar¦" `is` "¦foo bar¦"
