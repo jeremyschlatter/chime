@@ -112,7 +112,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
             \((aa, ad), (ba, bd)) -> eq aa ba >>= bool (pure False) (eq ad bd)
           _ -> pure False
         _ -> pure False
-      in fmap (bool (Symbol Nil) (Sym 't' "")) . \case
+      in fmap (Just . bool (Symbol Nil) (Sym 't' "")) . \case
         a:b:cs -> go a (b:cs)
         _ -> pure True
   , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
@@ -120,7 +120,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> pure $ Symbol Nil
         [x] -> pure x
         x:xs -> x ~~ go xs
-      in go
+      in fmap Just . go
   , ("append",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
       go accum = \case
@@ -133,8 +133,8 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         x : xs -> properList x >>= \case
           Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
           Just l -> go (accum <> l) xs
-      in go []
-  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+      in fmap Just . go []
+  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [] -> tooFewArguments
       [_] -> tooFewArguments
       _:_:_:_ -> tooManyArguments
@@ -161,7 +161,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           (const $ go bs s)
           (pure . Character . MkCharacter . T.head)
           (decodeUtf8' bs)
-      in \case
+      in fmap Just . \case
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
@@ -169,7 +169,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       symT = \case
         (Sym 't' "") -> pure ()
         _ -> empty
-      in \case
+      in fmap Just . \case
         [] -> tooFewArguments
         [_] -> tooFewArguments
         [cs, base] -> bisequence
@@ -180,18 +180,18 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
                 either (throwError . errorBundlePretty) pure
             _ -> typecheckFailure
         _:_:_:_ -> tooManyArguments
-  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [] -> tooFewArguments
       _:_:_ -> tooManyArguments
       [x] -> runMaybeT (number x) >>= \case
         Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
         _ -> typecheckFailure
-  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [n] -> (runMaybeT (number n)) <&> \case
         Just _ -> Sym 't' ""
         _ -> Symbol Nil
       _ -> throwError "wrong number of arguments"
-  , ("prsimple",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("prsimple",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [x, s] -> toStream Out s >>= \case
         Just ref -> readRef ref >>= \case
           MkStream h _ _ 7 -> let
@@ -210,16 +210,16 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
               <> "right now. Sorry."
         _ -> typecheckFailure
       _ -> throwError "wrong number of arguments"
-  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [x] -> case x of
         (Symbol Nil) -> pure $ Sym 't' ""
         _ -> pure $ Symbol Nil
       _ -> throwError "wrong number of arguments"
 
-  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [] -> doDebug <%= not >>= toObject
       _ -> tooManyArguments
-  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
+  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [x] -> do
         start <- liftIO getCurrentTime
         result <- evaluate x
@@ -237,7 +237,7 @@ nativeMacros =
         x:xs -> evaluate x >>= \case
           Symbol Nil -> go xs
           x' -> pure x'
-      in go
+      in fmap Just . go
   , ("and",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go = \case
         [] -> pure $ Sym 't' ""
@@ -245,8 +245,8 @@ nativeMacros =
         x:xs -> evaluate x >>= \case
           Symbol Nil -> pure $ Symbol Nil
           _ -> go xs
-      in go
-  , ("fn",) $ MkOptimizedFunction fn (Symbol Nil, Symbol Nil)
+      in fmap Just . go
+  , ("fn",) $ MkOptimizedFunction (fmap Just . fn) (Symbol Nil, Symbol Nil)
   ]
 
 formSet :: [Object IORef] -> EvalMonad (Object IORef)
@@ -334,16 +334,16 @@ numFnN
   :: (ToObject EvalMonad IORef r) => ([Number] -> r) -> OptimizedFunction IORef
 numFnN f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $
   traverse (runMaybeT . number) >=> maybe
-    (throwError "non-numbers were passed to an optimized numeric function")
-    (toObject . f)
+    (pure Nothing)
+    (fmap Just . toObject . f)
     . sequence
 
 numFn1 :: (ToObject EvalMonad IORef r) => (Number -> r) -> OptimizedFunction IORef
 numFn1 f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
   [x] -> runMaybeT (number x) >>= maybe
-    (throwError "non-number was passed to an optimized numeric function")
-    (toObject . f)
-  _ -> tooFewArguments
+    (pure Nothing)
+    (fmap Just . toObject . f)
+  _ -> Just <$> tooFewArguments
 
 throwError :: String -> EvalMonad (Object IORef)
 throwError s = listToObject [
@@ -802,51 +802,57 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
         True -> pure expr
 
         -- operators with arguments
-        False -> operator op >>= maybe giveUp \case
-          TheContinuation c -> case args of
-            [] -> throwError "tried to call a continuation with no arguments"
-            [x] -> evaluate x >>= c
-            _ -> throwError "tried to call a continuation with too many arguments"
-          TheOptimizedFunction f -> fnBody f args
-          Primitive p -> case p of
-            Prim1 nm f -> case args of
-              [] -> call (Symbol Nil)
-              [a] -> call a
-              _ -> excessPrimParams nm args 1
-              where call = evaluate >=> f
-            Prim2 nm f -> case args of
-              [] -> call (Symbol Nil) (Symbol Nil)
-              [a] -> call a (Symbol Nil)
-              [a,b] -> call a b
-              _ -> excessPrimParams nm args 2
-              where
-                call a b = do
-                  a' <- evaluate a
-                  b' <- evaluate b
-                  f a' b'
-          SpecialForm form -> case form of
-            Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
-            Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
-            Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
-            FormN _ f -> f args
-            Lit -> pure expr
-          Closure (MkClosure env params body) ->
-            (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
-              either pure
-                (\bound -> withScope (bound <> env) (evreturn body))
-          Macro (MkClosure env params body) -> do
-            (_, argTree) <- readPair "macro args" ref
-            destructure params argTree >>=
-              either pure
-                (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
-          TheNumber n -> case args of
-            [x] -> evaluate x >>= nth n
-            _ -> throwError "wrong number of arguments to nth"
-          Virfn (MkClosure env params body) -> do
-            (_, argTree) <- readPair "virfn args" ref
-            (op ~| argTree) >>= destructure params >>=
-              either pure
-                (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+        False -> operator op >>= maybe giveUp let
+          operate = \case
+            TheContinuation c -> case args of
+              [] -> throwError "tried to call a continuation with no arguments"
+              [x] -> evaluate x >>= c
+              _ -> throwError "tried to call a continuation with too many arguments"
+            TheOptimizedFunction f -> fnBody f args >>= \case
+              Just x -> pure x
+              Nothing -> (fmap Pair $ newRef $ MkPair $ fnFallback f) >>= operator >>= \case
+                Nothing -> interpreterBug "sorry! the implementor of chime messed up here."
+                Just x -> operate x
+            Primitive p -> case p of
+              Prim1 nm f -> case args of
+                [] -> call (Symbol Nil)
+                [a] -> call a
+                _ -> excessPrimParams nm args 1
+                where call = evaluate >=> f
+              Prim2 nm f -> case args of
+                [] -> call (Symbol Nil) (Symbol Nil)
+                [a] -> call a (Symbol Nil)
+                [a,b] -> call a b
+                _ -> excessPrimParams nm args 2
+                where
+                  call a b = do
+                    a' <- evaluate a
+                    b' <- evaluate b
+                    f a' b'
+            SpecialForm form -> case form of
+              Form1 nm f -> case args of [a] -> f a; _ -> wrongParamCount nm args 1
+              Form2 nm f -> case args of [a,b] -> f a b; _ -> wrongParamCount nm args 2
+              Form3 nm f -> case args of [a,b,c] -> f a b c; _ -> wrongParamCount nm args 3
+              FormN _ f -> f args
+              Lit -> pure expr
+            Closure (MkClosure env params body) ->
+              (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
+                either pure
+                  (\bound -> withScope (bound <> env) (evreturn body))
+            Macro (MkClosure env params body) -> do
+              (_, argTree) <- readPair "macro args" ref
+              destructure params argTree >>=
+                either pure
+                  (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+            TheNumber n -> case args of
+              [x] -> evaluate x >>= nth n
+              _ -> throwError "wrong number of arguments to nth"
+            Virfn (MkClosure env params body) -> do
+              (_, argTree) <- readPair "virfn args" ref
+              (op ~| argTree) >>= destructure params >>=
+                either pure
+                  (\bound -> (withScope (bound <> env) (evaluate body)) >>= evreturn)
+          in operate
 
       _ -> giveUp
 

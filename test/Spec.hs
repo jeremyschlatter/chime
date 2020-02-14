@@ -466,8 +466,7 @@ spec = do
       "(pos \\a \"ask\")" `is` "1"
       slow {- 0.25 seconds -} $ "(map charn \"abc\")" `is` "(97 98 99)"
       "(> 3/4 2/3)" `is` "t"
-      -- @incomplete: can't handle non-numeric comparisons
-      -- "(< 'apple 'apply)" `is` "t"
+      slow {- 1.4 seconds -} $ "(< 'apple 'apply)" `is` "t"
       "((rfn foo (x) (if (no x) 0 (inc:foo:cdr x))) '(a b c))" `is` "3"
       "((afn (x) (if (no x) 0 (inc:self:cdr x))) '(a b c))" `is` "3"
       replTest $ []
@@ -832,6 +831,7 @@ spec = do
         > "\"apple\""
 
     it "correctly interprets belexamples.txt" do
+      slow {- 10 seconds -} $ "(dedup:sort < \"abracadabra\")" `is` "\"abcdr\""
       replTest $ []
         >> "(cons 'a 'b '(c d e))"
         > "(a b c d e)"
@@ -847,9 +847,6 @@ spec = do
         > "b"
         >> "w"
         > "(a (c) d (e f))"
-
---         >> "(dedup:sort < \"abracadabra\")"
---         > "\"abcdr\""
 
 --         >> "(+ .05 19/20)"
 --         > "1"

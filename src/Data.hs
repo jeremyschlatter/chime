@@ -36,7 +36,7 @@ data Stream = MkStream
   }
 
 data OptimizedFunction r = MkOptimizedFunction
-  { fnBody :: [Object IORef] -> EvalMonad (Object IORef)
+  { fnBody :: [Object IORef] -> EvalMonad (Maybe (Object IORef))
   , fnFallback :: (Object r, Object r)
   }
 
