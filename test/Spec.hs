@@ -625,7 +625,7 @@ spec = do
       "(let x '(a b c) `,@x)" `is` "<error>"
       "(let x '(b c) `(a . ,@x))" `is` "<error>"
 
-      -- @incomplete: this example does not parse
+      -- @skip: this example does not parse
       -- "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
 
       "(bqex '(bquote (comma (comma x))) nil)"
@@ -674,6 +674,7 @@ spec = do
           x)
         |] `is` "abcnil"
       slow {- 0.1 second -} $ "(loop x 1 (+ x 1) (< x 5) (pr x))" `is` "1234nil"
+      -- @skip
       -- "(let x '(a b c) (while (pop x) (pr x)))" `is` "(b c)(c)nilnil"
       slow {- 0.1 second -} $
         [r|
@@ -692,6 +693,7 @@ spec = do
       "(accum a (map (cand odd a) '(1 2 3 4 5)))" `is` "(1 3 5)"
 
       -- @consider: this is a non-deterministic test. how should I handle it?
+      -- @skip
       -- "(nof 10 (rand 10))" `is` "(9 7 6 2 9 1 7 0 0 0)"
 
       "(let x '(a b c d e) (drain (pop x)))" `is` "(a b c d e)"
@@ -726,6 +728,7 @@ spec = do
       "(map upon.3 (list even odd))" `is` "(nil t)"
       "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))" `is` "(-2 -2 -1 1 2 2)"
 
+--       @skip
 --       replTest $ []
 --         >> "(to \"foo\" (map prn '(a b c)))"
 --         > "..."
@@ -734,6 +737,7 @@ spec = do
 --         >> "(from \"foo\" (readall))"
 --         > "(a b c)"
 
+--       @skip
 --       replTest $ []
 --         >> "(to \"example.bel\" (print '(def foo (x) (cons 'a x))))"
 --         > "nil"
@@ -742,6 +746,7 @@ spec = do
 --         >> "(foo 'b)"
 --         > "(a . b)"
 
+--       @skip
 --       replTest $ []
 --         >> "(record (pr 'what) (pr \\ ) (pr \"he said\"))"
 --         > "\"what he said\""
@@ -773,6 +778,7 @@ spec = do
         > "nil"
         >> "(map k '(a c))"
         > "(b d)"
+        -- @skip
         -- >> "(set k!a 1 k!z 2)"
         -- > "2"
         -- >> "k"
@@ -782,6 +788,7 @@ spec = do
         -- >> "k"
         -- > "(lit tab (a . 1) (c . d))"
 
+--       @skip
 --       replTest $ []
 --         >> "(tem point x 0 y 0)"
 --         > "..."
@@ -884,12 +891,14 @@ spec = do
         > "5"
         >> "(to \"testfile\" (print 'hello))"
         > "nil"
+        -- @skip
         -- >> "(from \"testfile\" (read))"
         -- > "hello"
         >> "(set y (table))"
         > "(lit tab)"
         >> "(set y!a 1 y!b 2)"
         > "2"
+        -- @skip
         -- >> "(map y '(a b))"
         -- > "(1 2)"
         -- >> "(map ++:y '(a b))"
