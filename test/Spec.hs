@@ -828,6 +828,8 @@ spec = do
         > "..."
         >> "(fnd [= (car _) \\a] '(\"pear\" \"apple\" \"grape\"))"
         > "\"apple\""
+      "(prn 1)" `is` "1 \n1"
+      "((fn (x) (prn 'hello) (cons 'a x)) 'b)" `is` "hello \n(a . b)"
 
     it "correctly interprets belexamples.txt" do
       slow {- 10 seconds -} $ "(dedup:sort < \"abracadabra\")" `is` "\"abcdr\""
@@ -911,15 +913,10 @@ spec = do
 
     -- @incomplete add these tests:
     --
-    --   (prn 1) will return 1, but before doing so will print it.
     --   (stat x)
     --   (coin)
     --   (sys x)
     --   (thread x)
-    --   multiple expression body fn's:
-    --    (fn (x)
-    --      (prn 'hello)
-    --      (cons 'a x))
     --
     --   should be able to run the `bel` function
     --     - w/o problems with backquoting
