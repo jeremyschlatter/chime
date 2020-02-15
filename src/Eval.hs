@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude as P hiding (evaluate, getEnv, head, tail, mask)
+import BasePrelude as P hiding (evaluate, getEnv, head, tail, mask, hClose)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
@@ -22,7 +22,7 @@ import Data.Time.Clock
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
-import System.IO
+import System.IO hiding (hPutStr, hClose)
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Error
 
@@ -145,7 +145,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       nextByte :: Stream -> EvalMonad (Either (Object IORef) Word8)
       nextByte (MkStream h _ _ idx) =
         if idx == 7
-        then liftIO (B.unpack <$> B.hGet h 1) <&> \case
+        then liftIO (B.unpack <$> hGet h 1) <&> \case
           [] -> Left $ Sym 'e' "of"
           [x] -> Right x
           _ -> interpreterBug
@@ -604,7 +604,7 @@ primitives = (\p -> (primName p, p)) <$>
           in Symbol Nil <$
             if newIdx == 7
             then do
-              liftIO $ B.hPut h (B.singleton newBuf)
+              liftIO $ hPut h (B.singleton newBuf)
               writeRef ref $ MkStream h d 0 newIdx
             else
               writeRef ref $ MkStream h d newBuf newIdx
@@ -618,7 +618,7 @@ primitives = (\p -> (primName p, p)) <$>
              -- @incomplete: this blocks, and rdb should not block
              -- Fixing this will be difficult because the underlying Haskell interface
              -- does not support a non-blocking read that also reports EOF.
-             b <- liftIO $ B.hGet h 1
+             b <- liftIO $ hGet h 1
              case B.unpack b of
                [] -> pure $ Sym 'e' "of"
                -- [] -> pure $ Symbol Nil
@@ -648,7 +648,7 @@ primitives = (\p -> (primName p, p)) <$>
         if m == 7 || d == In
         then pure ()
         -- flush any bits left in the buffer
-        else B.hPut h (B.singleton b)
+        else hPut h (B.singleton b)
         hClose h
         pure $ Symbol Nil
       _ -> throwError "invalid argument to cls"

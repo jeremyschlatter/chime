@@ -2,6 +2,9 @@ module Main where
 
 import BasePrelude hiding ((>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
+import qualified Data.ByteString as B
+import Data.Text (unpack)
+import Data.Text.Encoding
 import Data.Time.Clock
 import RawStringsQQ
 import Test.HUnit.Base
@@ -634,13 +637,11 @@ spec = do
       "(cons 'a 5)" `is` "(a . 5)"
       "(let x '(a b c) (cons x x))" `is` "(#1=(a b c) . #1)"
       "(append '(a b c) 5)" `is` "(a b c . 5)"
-
-      -- @incomplete: uncomment when tests capture stdout
-      -- "(with (x \"foo\" y 'bar) (prn 'x x 'y y))"
-        -- `is` "x \"foo\" y bar\nbar"
-      -- "(let user 'Dave (pr \"I'm sorry, \" user \". I'm afraid I can't do that.\"))"
-        -- `is` "I'm sorry, Dave. I'm afraid I can't do that."
-
+      "(with (x \"foo\" y 'bar) (prn 'x x 'y y))" `is` "x \"foo\" y bar \nbar"
+      slow {- 0.5 seconds -} $
+        -- slight deviation from the example in the spec to avoid double-printing
+        "(let user 'Dave (pr \"I'm sorry, \" user \". I'm afraid I can't do that\") \\!)"
+          `is` "I'm sorry, Dave. I'm afraid I can't do that\\!"
       slow {- 0.25 seconds -} $ "(drop 2 '(a b c d e))" `is` "(c d e)"
       "(nth 2 '(a b c d e))" `is` "b"
       "(2 '(a b c))" `is` "b"
@@ -665,23 +666,24 @@ spec = do
       "(map (upon 3.5) (list floor ceil))" `is` "(3 4)"
       "(mod 17 3)" `is` "2"
 
-      -- @incomplete: uncomment these when tests capture stdout
-      -- [r|
-      -- (let x '(a b c)
-      --   (whilet y (pop x)
-      --     (pr y))
-      --   x)
-      -- |] `is` "abcnil"
-      -- "(loop x 1 (+ x 1) (< x 5) (pr x))" `is` "1234nil"
+      slow {- 0.1 second -} $
+        [r|
+        (let x '(a b c)
+          (whilet y (pop x)
+            (pr y))
+          x)
+        |] `is` "abcnil"
+      slow {- 0.1 second -} $ "(loop x 1 (+ x 1) (< x 5) (pr x))" `is` "1234nil"
       -- "(let x '(a b c) (while (pop x) (pr x)))" `is` "(b c)(c)nilnil"
-      -- [r|
-      -- (let x '(a b c d e)
-      --   (til y (pop x) (= y 'c)
-      --     (pr y))
-      --   x)
-      -- |] `is` "ab(d e)"
-      -- "(for x 1 10 (pr x))" `is` "12345678910nil"
-      -- "(repeat 3 (pr 'bang))" `is` "bangbangbangnil"
+      slow {- 0.1 second -} $
+        [r|
+        (let x '(a b c d e)
+          (til y (pop x) (= y 'c)
+            (pr y))
+          x)
+        |] `is` "ab(d e)"
+      slow {- 0.2 seconds -} $ "(for x 1 10 (pr x))" `is` "12345678910nil"
+      slow {- 0.1 seconds -} $ "(repeat 3 (pr 'bang))" `is` "bangbangbangnil"
       [r|
       (let x '(a b c d e)
         (poll (pop x) is!c)
@@ -958,13 +960,17 @@ evalIn s state =
        pure
        x
 
+captureStdout :: EvalState -> IO (EvalState, IORef B.ByteString)
+captureStdout s = newIORef B.empty >>= \ref -> newStream Out ref <&>
+  \stream -> (s {_outs = stream}, ref)
+
 evalInShouldBe :: EvalState -> String -> String -> Expectation
-evalInShouldBe state a b =
-  readThenRunEval "test case" a state >>= \(x, postState) ->
+evalInShouldBe rawState a b = captureStdout rawState >>= \(state, stdout) ->
+  (,) <$> readThenRunEval "test case" a state <*> readRef stdout >>= \((x, postState), out) ->
     either
       (\e -> if b == "<error>" then pure () else
          failure $ a <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
-      (repr >=> assertEqual ("> " <> a) b)
+      (repr >=> assertEqual ("> " <> a) b . (unpack (decodeUtf8 out) <>))
       x
 
 debugEvalInShouldBe :: EvalState -> String -> String -> Expectation

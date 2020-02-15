@@ -20,6 +20,7 @@ default-extensions:
 - EmptyCase
 - FlexibleContexts
 - FlexibleInstances
+- GADTs
 - InstanceSigs
 - LambdaCase
 - MultiParamTypeClasses
@@ -85,8 +86,10 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - chime
+    - bytestring
     - hspec
     - HUnit
     - template-haskell
+    - text
     - time
     - transformers

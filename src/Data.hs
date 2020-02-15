@@ -8,6 +8,9 @@ import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
 import Data.Bitraversable
+import qualified Data.ByteString as B
+import Data.Text (pack)
+import Data.Text.Encoding
 import System.IO
 
 import Common
@@ -28,12 +31,31 @@ data Pair r
 
 data Direction = In | Out deriving Eq
 
-data Stream = MkStream
-  { streamHandle :: Handle
-  , streamDirection :: Direction
-  , streamBuf :: Word8
-  , streamPlace :: Int
-  }
+class StreamBackend x where
+  hGet :: x -> Int -> IO B.ByteString
+  hPut :: x -> B.ByteString -> IO ()
+  hClose :: x -> IO ()
+
+instance StreamBackend Handle where
+  hGet = B.hGet
+  hPut = B.hPut
+  hClose = System.IO.hClose
+
+hPutStr :: StreamBackend x => x -> String -> IO ()
+hPutStr h = hPut h . encodeUtf8 . pack
+
+instance StreamBackend (IORef B.ByteString) where
+  hGet h n = readIORef h >>= \s -> writeIORef h (B.drop n s) $> B.take n s
+  hPut h s = modifyIORef h (`B.append` s)
+  hClose _ = pure ()
+
+data Stream where
+  MkStream :: StreamBackend x =>
+    { streamHandle :: x
+    , streamDirection :: Direction
+    , streamBuf :: Word8
+    , streamPlace :: Int
+    } -> Stream
 
 data OptimizedFunction r = MkOptimizedFunction
   { fnBody :: [Object IORef] -> EvalMonad (Maybe (Object IORef))
@@ -68,7 +90,7 @@ data EvalState = EvalState
 $(makeLenses ''EvalState)
 $(makePrisms ''Object)
 
-newStream :: (MonadRef m, Ref m ~ IORef) => Direction -> Handle -> m (IORef Stream)
+newStream :: (MonadRef m, Ref m ~ IORef, StreamBackend x) => Direction -> x -> m (IORef Stream)
 newStream d h = newRef (MkStream h d 0 7)
 
 emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
