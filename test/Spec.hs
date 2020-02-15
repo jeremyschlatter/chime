@@ -7,6 +7,7 @@ import Data.Text (unpack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import RawStringsQQ
+import System.Random
 import Test.HUnit.Base
 import Test.Hspec
 
@@ -691,11 +692,7 @@ spec = do
         x)
       |] `is` "(d e)"
       "(accum a (map (cand odd a) '(1 2 3 4 5)))" `is` "(1 3 5)"
-
-      -- @consider: this is a non-deterministic test. how should I handle it?
-      -- @skip
-      -- "(nof 10 (rand 10))" `is` "(9 7 6 2 9 1 7 0 0 0)"
-
+      slow {- 8 seconds -} $ "(nof 10 (rand 10))" `is` "(1 8 5 9 5 7 6 0 4 4)"
       "(let x '(a b c d e) (drain (pop x)))" `is` "(a b c d e)"
       "(let x '(a b c d e) (drain (pop x) is!d))" `is` "(a b c)"
       "(^w 2+3i 3)" `is` "-46+9i"
@@ -970,8 +967,11 @@ captureStdout :: EvalState -> IO (EvalState, IORef B.ByteString)
 captureStdout s = newIORef B.empty >>= \ref -> newStream Out ref <&>
   \stream -> (s {_outs = stream}, ref)
 
+fixedRNG :: EvalState -> EvalState
+fixedRNG s = s {_rng = mkStdGen 0}
+
 evalInShouldBe :: EvalState -> String -> String -> Expectation
-evalInShouldBe rawState a b = captureStdout rawState >>= \(state, stdout) ->
+evalInShouldBe rawState a b = captureStdout (fixedRNG rawState) >>= \(state, stdout) ->
   (,) <$> readThenRunEval "test case" a state <*> readRef stdout >>= \((x, postState), out) ->
     either
       (\e -> if b == "<error>" then pure () else

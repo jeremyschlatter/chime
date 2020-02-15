@@ -12,6 +12,7 @@ import qualified Data.ByteString as B
 import Data.Text (pack)
 import Data.Text.Encoding
 import System.IO
+import System.Random
 
 import Common
 
@@ -86,6 +87,7 @@ data EvalState = EvalState
  , _vmark :: IORef (Pair IORef)
  , _ins :: IORef Stream
  , _outs :: IORef Stream
+ , _rng :: StdGen
  }
 $(makeLenses ''EvalState)
 $(makePrisms ''Object)
@@ -93,11 +95,12 @@ $(makePrisms ''Object)
 newStream :: (MonadRef m, Ref m ~ IORef, StreamBackend x) => Direction -> x -> m (IORef Stream)
 newStream d h = newRef (MkStream h d 0 7)
 
-emptyState :: (MonadRef m, Ref m ~ IORef) => m EvalState
+emptyState :: (MonadRef m, Ref m ~ IORef, MonadIO m) => m EvalState
 emptyState = EvalState [] (pure []) [] [] [] False
   <$> newRef (MkPair (Symbol Nil, Symbol Nil))
   <*> newStream In stdin
   <*> newStream Out stdout
+  <*> liftIO newStdGen
 
 
 -- -----------------------------------------------------------------------

@@ -23,6 +23,7 @@ import System.Console.Haskeline
 import System.Directory
 import System.FilePath
 import System.IO hiding (hPutStr, hClose)
+import System.Random
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Error
 
@@ -64,6 +65,7 @@ builtins = (globe <~) $ traverse
     , "ops"
     , "cls"
     , "stat"
+    , "coin"
     , "err"
     ]
   where
@@ -84,7 +86,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       [a] -> (0 :+ 0) `numSub` a
       a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
   , ("*",) $ numFnN $ foldr numMul (1 :+ 0)
-  , ("recip",) $ numFn1 $ \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
+  , ("recip",) $ numFn1 \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
   , ("odd",) $ numFn1 \case
       (n :+ 0) -> denominator n == 1 && odd (numerator n)
       _ -> False
@@ -170,17 +172,17 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       symT = \case
         (Sym 't' "") -> pure ()
         _ -> empty
-      in fmap Just . \case
-        [] -> tooFewArguments
-        [_] -> tooFewArguments
+      in \case
+        [] -> Just <$> tooFewArguments
+        [_] -> Just <$> tooFewArguments
         [cs, base] -> bisequence
           (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
-            -- @incomplete: handle bases other than 10
             (Just s, Just (length -> n)) | n == 10 ->
-              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
+              fmap Just $ evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
                 fromRight (Symbol Nil)
-            _ -> typecheckFailure
-        _:_:_:_ -> tooManyArguments
+            -- @performance: handle bases other than 10 natively
+            _ -> pure Nothing
+        _:_:_:_ -> Just <$> tooManyArguments
 
   , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [] -> tooFewArguments
@@ -547,11 +549,13 @@ append a b = bimapM properList properList (a, b) >>= \case
   _ -> throwError "non-lists in splice"
 
 data Primitive
-  = Prim1 String (Object IORef -> EvalMonad (Object IORef))
+  = Prim0 String (EvalMonad (Object IORef))
+  | Prim1 String (Object IORef -> EvalMonad (Object IORef))
   | Prim2 String (Object IORef -> Object IORef -> EvalMonad (Object IORef))
 
 primName :: Primitive -> String
 primName = \case
+  Prim0 s _ -> s
   Prim1 s _ -> s
   Prim2 s _ -> s
 
@@ -559,6 +563,12 @@ primitive :: [Object IORef] -> Maybe Primitive
 primitive = \case
   [Sym 'l' "it", Sym 'p' "rim", Symbol x] -> lookup (toList $ unSymbol x) primitives
   _ -> Nothing
+
+symbol :: String -> Symbol
+symbol = \case
+  [] -> interpreterBug
+    "there is an empty symbol in the interpreter code where there shouldn't be"
+  s:ss -> MkSymbol $ s:|ss
 
 primitives :: [(String, Primitive)]
 primitives = (\p -> (primName p, p)) <$>
@@ -652,6 +662,11 @@ primitives = (\p -> (primName p, p)) <$>
         hClose h
         pure $ Symbol Nil
       _ -> throwError "invalid argument to cls"
+  , Prim0 "coin" do
+      gen <- use rng
+      let (result, newGen) = random gen
+      rng .= newGen
+      pure $ Symbol $ symbol $ bool "nil" "t" result
   -- @incomplete: this throws away info when the argument is not a string
   -- @consider: what if another error is signaled during evaluation of the argument?
   , Prim1 "err" $ \x -> repr x >>= \rep -> string x >>= E.throwError . \case
@@ -706,7 +721,10 @@ toTypeCheck x = MaybeT (properList x) >>= \case
   [Sym 't' "", v, f] -> pure (v, f)
   _ -> empty
 
-destructure :: Object IORef -> Object IORef -> EvalMonad (Either (Object IORef) Environment)
+destructure
+  :: Object IORef
+  -> Object IORef
+  -> EvalMonad (Either (Object IORef) Environment)
 destructure p a' = pushScope *> go p a' <* popScope where
   pushScope = scope %= \(s:|ss) -> s:|(s:ss)
   popScope = scope %= \case
@@ -816,6 +834,9 @@ evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
                 Nothing -> interpreterBug "sorry! the implementor of chime messed up here."
                 Just x -> operate x
             Primitive p -> case p of
+              Prim0 nm f -> case args of
+                [] -> f
+                _ -> excessPrimParams nm args 0
               Prim1 nm f -> case args of
                 [] -> call (Symbol Nil)
                 [a] -> call a

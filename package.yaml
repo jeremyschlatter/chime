@@ -53,6 +53,7 @@ library:
   - megaparsec
   - mtl
   - parser-combinators
+  - random
   - template-haskell
   - text
   - time
@@ -89,6 +90,7 @@ tests:
     - bytestring
     - hspec
     - HUnit
+    - random
     - template-haskell
     - text
     - time

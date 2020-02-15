@@ -31,8 +31,8 @@ objectToEnv = runMaybeT . flip properListOf \case
   Pair ref -> pure ref
   _ -> empty
 
-objectToState
-  :: (MonadMutableRef m, IORef ~ Ref m) => Object (Ref m) -> m (Either String EvalState)
+objectToState :: (MonadMutableRef m, IORef ~ Ref m, MonadIO m)
+  => Object (Ref m) -> m (Either String EvalState)
 objectToState = properList >=> \case
   Nothing -> pure $ Left $ "not a proper list"
   Just [g, v] -> bisequence (toKVPair g, toKVPair v) >>= \case
@@ -50,7 +50,8 @@ stateToObject s = listToObject
   , pure (Sym 'v' "mark") >< pure (Pair (_vmark s))
   ]
 
-stringToState :: (MonadMutableRef m, Ref m ~ IORef) => String -> m (Either String EvalState)
+stringToState :: (MonadMutableRef m, Ref m ~ IORef, MonadIO m)
+  => String -> m (Either String EvalState)
 stringToState s = parse "" s >>= \case
   Left err -> pure $ Left $ errorBundlePretty err
   Right obj -> objectToState obj
