@@ -251,6 +251,12 @@ nativeMacros =
           _ -> go xs
       in fmap Just . go
   , ("fn",) $ MkOptimizedFunction (fmap Just . fn) (Symbol Nil, Symbol Nil)
+
+  , ("ifwhere",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [] -> tooFewArguments
+      [_] -> tooFewArguments
+      [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
+      _ -> tooManyArguments
   ]
 
 formSet :: [Object IORef] -> EvalMonad (Object IORef)
@@ -304,7 +310,7 @@ withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) wh
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing ->
-      if nm `elem` ["time", "debug"]
+      if nm `elem` ["time", "debug", "ifwhere"]
       then (fmap Pair . newRef . OptimizedFunction) f >>= \x ->
         (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
       else interpreterBug $ nm <> " was not present in the global state"
@@ -661,7 +667,7 @@ primitives = (\p -> (primName p, p)) <$>
         else hPut h (B.singleton b)
         hClose h
         pure $ Symbol Nil
-      _ -> throwError "invalid argument to cls"
+      x -> repr x >>= throwError . ("invalid argument to cls: " <>)
   , Prim0 "coin" do
       gen <- use rng
       let (result, newGen) = random gen
@@ -978,4 +984,4 @@ repl = withNativeFns >=> \st -> getArgs >>= \case
       _ -> False
 
 belDotBel :: String
-belDotBel = $(embedStringFile "reference/bel.bel")
+belDotBel = $(embedStringFile "reference/bel.bel") <> $(embedStringFile "src/extensions.bel")

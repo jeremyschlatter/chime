@@ -1,0 +1,5 @@
+(def tabref2 (tab key (o default))
+   (ifwhere (cdr:tabloc tab key) (tabref tab key)))
+
+(vir tab (f args)
+  `(tabref2 ,f ,@args))

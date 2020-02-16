@@ -777,17 +777,15 @@ spec = do
         > "nil"
         >> "(map k '(a c))"
         > "(b d)"
-        -- @skip
-        -- >> "(set k!a 1 k!z 2)"
-        -- > "2"
-        -- >> "k"
-        -- > "(lit tab (z . 2) (a . 1) (c . d))"
-        -- >> "(tabrem k 'z)"
-        -- > "((a . 1) (c . d))"
-        -- >> "k"
-        -- > "(lit tab (a . 1) (c . d))"
+        >> "(set k!a 1 k!z 2)"
+        > "2"
+        >> "k"
+        > "(lit tab (z . 2) (a . 1) (c . d))"
+        >> "(tabrem k 'z)"
+        > "((a . 1) (c . d))"
+        >> "k"
+        > "(lit tab (a . 1) (c . d))"
 
---       @skip
 --       replTest $ []
 --         >> "(tem point x 0 y 0)"
 --         > "..."
