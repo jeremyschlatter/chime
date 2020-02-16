@@ -143,7 +143,7 @@ bracketFn = lexChar '[' *> (many expression >>= wrap) <* lexChar ']' where
   lexChar = lexeme . char
 
 number :: MonadRef m => Parser m (Object (Ref m))
-number = lexeme (complex >>= toObject) where
+number = complex >>= toObject where
   complex :: Parser m (Complex Rational)
   complex = bisequence (opt rational, opt (rational <* char 'i')) >>= \case
     (Nothing, Nothing) -> empty
@@ -193,9 +193,7 @@ expression =  composedSymbols
           <|> backQuotedList
           <|> commaExpr
           <|> string
-          -- <|> barQuotedSymbol
           <|> bracketFn
-          <|> number
           <|> (pair >>= fmap Pair . newRef)
           <|> (Character <$> character)
 

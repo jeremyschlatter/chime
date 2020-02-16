@@ -70,8 +70,7 @@ spec = do
       "(+ .5)" `is` "(+ 1/2)"
       "2.x" `is` "(2 x)"
       "\\ " `is` "\\sp"
-      -- @skip
-      -- "(1 . 2)" `is` "(1 . 2)"
+      "(1 . 2)" `is` "(1 . 2)"
 
   describe "evaluation" do
 
