@@ -725,14 +725,13 @@ spec = do
       "(map upon.3 (list even odd))" `is` "(nil t)"
       "(map round '(-2.5 -1.5 -1.4 1.4 1.5 2.5))" `is` "(-2 -2 -1 1 2 2)"
 
---       @skip
---       replTest $ []
---         >> "(to \"foo\" (map prn '(a b c)))"
---         > "..."
---         >> "(from \"foo\" (drain (read)))"
---         > "(a b c)"
---         >> "(from \"foo\" (readall))"
---         > "(a b c)"
+      replTest $ []
+        >> "(to \"foo\" (map prn '(a b c)))"
+        > "..."
+        >> "(from \"foo\" (drain (read)))"
+        > "(a b c)"
+        >> "(from \"foo\" (readall))"
+        > "(a b c)"
 
 --       @skip
 --       replTest $ []
