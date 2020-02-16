@@ -115,7 +115,7 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
     (foldl (flip \(s, c) -> ((lexLit s $> c) <|>)) empty controlChars)
 
 character :: Parser m Character
-character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "#\",`'\\.[]():!~|")
+character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "#\",`'\\.[]():!~| ")
 
 quotedExpression :: MonadMutableRef m => Parser m (Object (Ref m))
 quotedExpression = char '\'' *> expression >>= quote

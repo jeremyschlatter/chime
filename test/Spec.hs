@@ -69,6 +69,7 @@ spec = do
       "((f . #1=(a b)) #1)" `is` "((f . #1=(a b)) #1)"
       "(+ .5)" `is` "(+ 1/2)"
       "2.x" `is` "(2 x)"
+      "\\ " `is` "\\sp"
 
   describe "evaluation" do
 
