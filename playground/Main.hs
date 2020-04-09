@@ -18,6 +18,7 @@ main = stringToState belDotBelState >>= either die pure >>= withNativeFns >>= \b
   (read . fromMaybe "8080" <$> lookupEnv "PORT") >>= flip scotty do
 
     post "/" do
+      addHeader "Access-Control-Allow-Origin" "*"
       body >>= liftIO . flip (readThenRunEval "") baseState . unpack . decodeUtf8
         >>= either pure repr . fst >>= text . pack
 
