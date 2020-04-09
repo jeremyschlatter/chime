@@ -1,4 +1,5 @@
 FROM haskell as builder
+WORKDIR /app
 
 # Download and build dependencies.
 COPY stack.yaml stack.yaml.lock ./
@@ -31,10 +32,9 @@ RUN stack install chime:playground
 
 # Copy into minimal image.
 FROM fpco/haskell-scratch:integer-gmp
-WORKDIR /root/
-COPY --from=builder /root/.local/bin/playground .
+COPY --from=builder /root/.local/bin/playground /playground
 COPY --from=builder /lib/x86_64-linux-gnu/libtinfo.so.5 /lib/x86_64-linux-gnu/libtinfo.so.5
 
 # Entrypoint.
 ENV PORT 8080
-CMD ["/root/playground"]
+CMD ["/playground"]
