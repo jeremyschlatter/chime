@@ -5,7 +5,8 @@ WORKDIR /app
 COPY stack.yaml stack.yaml.lock ./
 RUN echo "name: bel" > package.yaml
 RUN stack setup
-# Two groups b/c building all at once runs out of memory.
+# Multiple groups b/c building all at once runs out of memory,
+# and for Docker cache re-use as I develop this image over time.
 RUN stack build \
   base-prelude \
   bytestring \
@@ -24,6 +25,10 @@ RUN stack build \
   template-haskell \
   time \
   scotty
+RUN stack build \
+  aeson \
+  base64-bytestring \
+  zstd
 RUN rm bel.cabal
 
 # Build our code.
@@ -32,8 +37,8 @@ RUN stack install chime:playground
 
 # Copy into minimal image.
 FROM fpco/haskell-scratch:integer-gmp
-COPY --from=builder /root/.local/bin/playground /playground
 COPY --from=builder /lib/x86_64-linux-gnu/libtinfo.so.5 /lib/x86_64-linux-gnu/libtinfo.so.5
+COPY --from=builder /root/.local/bin/playground /playground
 
 # Entrypoint.
 ENV PORT 8080

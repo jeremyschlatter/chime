@@ -73,9 +73,12 @@ executables:
     ghc-options:
     - -rtsopts
     dependencies:
+    - aeson
+    - base64-bytestring
     - chime
     - scotty
     - text
+    - zstd
 
 tests:
   chime-test:
