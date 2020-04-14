@@ -781,18 +781,18 @@ tooManyArguments = throwError "Too many arguments in function call"
 typecheckFailure :: EvalMonad (Object IORef)
 typecheckFailure = throwError "typecheck failure"
 
-with :: MonadState s m => ASetter s s [e] [e] -> m a -> e -> m a
-with l m e = push *> m <* pop where
+with :: MonadState s m => ASetter s s [e] [e] -> e -> m a -> m a
+with l e m = push *> m <* pop where
   push = l %= (e:)
   pop = l %= \case
     [] -> interpreterBug "failed to pop stack frame"
     _:xs -> xs
 
 evaluate :: Object IORef -> EvalMonad (Object IORef)
-evaluate = flip (with locs) Nothing . evreturn
+evaluate = with locs Nothing . evreturn
 
 evreturn :: Object IORef -> EvalMonad (Object IORef)
-evreturn expr = {-bind (repr expr) $ with debug $-} case expr of
+evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case expr of
   -- characters
   c@(Character _) -> pure c
 
@@ -971,7 +971,10 @@ repl = withNativeFns >=> \st -> getArgs >>= \case
                       else outputStrLn (red (errorBundlePretty err)) *> go "" s
           Right obj -> handleInterrupt (newline *> newline *> go "" s) do
             (x, s') <- lift $ runEval (evaluate obj) s
-            either (pure . red) repr x >>= outputStrLn
+            stackTrace <- case _doDebug s' of
+              True -> (intercalate "\n\t" . ("\nevaluation stack:" :)) <$> (repr <%> _stack s')
+              False -> pure ""
+            either (pure . (<> stackTrace) . red) repr x >>= outputStrLn
             newline
             go "" $ either (const s) (const s') x
     newline = outputStrLn "" -- empty line between inputs

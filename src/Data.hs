@@ -82,7 +82,7 @@ data EvalState = EvalState
  , _scope :: NonEmpty Environment
  , _locs :: [Maybe Bool]
  , _dyns :: Environment
- , _debug :: [String]
+ , _stack :: [Object IORef]
  , _doDebug :: Bool
  , _vmark :: IORef (Pair IORef)
  , _ins :: IORef Stream

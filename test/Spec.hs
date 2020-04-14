@@ -1,6 +1,6 @@
 module Main where
 
-import BasePrelude hiding ((>), (>>), (>>>))
+import BasePrelude hiding (trace, (>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as B
 import Data.Text (unpack)
@@ -11,6 +11,7 @@ import System.Random
 import Test.HUnit.Base
 import Test.Hspec
 
+import Common
 import Data
 import Eval
 import Parse hiding (string)
@@ -947,17 +948,17 @@ parseThenPrintShouldBe a b = parse @IO "test case" a >>=
 failure :: String -> IO a
 failure = fmap undefined . expectationFailure
 
-stackTrace :: EvalState -> String
-stackTrace =
-  (\s -> if s == "" then "<no trace recorded>" else s)
-  . intercalate "\n"
-  . _debug
+stackTrace :: EvalState -> IO String
+stackTrace = (. _stack) \case
+  [] -> pure "<no trace recorded>"
+  x -> intercalate "\n" <$> (repr <%> x)
 
 evalIn :: String -> EvalState -> IO (Object IORef)
 evalIn s state =
    readThenRunEval "test case" s state >>= \(x, postState) ->
      either
-       (\e -> failure $ s <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
+       (\e -> stackTrace postState >>= \trace ->
+          failure $ s <> ": " <> e <> clear ("\n\nTrace:\n" <> trace))
        pure
        x
 
@@ -973,7 +974,8 @@ evalInShouldBe rawState a b = captureStdout (fixedRNG rawState) >>= \(state, std
   (,) <$> readThenRunEval "test case" a state <*> readRef stdout >>= \((x, postState), out) ->
     either
       (\e -> if b == "<error>" then pure () else
-         failure $ a <> ": " <> e <> clear ("\n\nTrace:\n" <> stackTrace postState))
+         stackTrace postState >>= \trace ->
+           failure $ a <> ": " <> e <> clear ("\n\nTrace:\n" <> trace))
       (repr >=> assertEqual ("> " <> a) b . (unpack (decodeUtf8 out) <>))
       x
 
