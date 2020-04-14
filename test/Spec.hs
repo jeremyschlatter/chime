@@ -71,6 +71,7 @@ spec = do
       "2.x" `is` "(2 x)"
       "\\ " `is` "\\sp"
       "(1 . 2)" `is` "(1 . 2)"
+      "\"hello world\"" `is` "\"hello world\""
 
   describe "evaluation" do
 

@@ -321,6 +321,7 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
         MkPair (Sym n ame, x) | n:ame == name -> repr x <&> (p <>)
         _ -> empty
       escaped :: Character -> String
+      escaped (MkCharacter ' ') = " " -- special case for space, not escaped when embedded in string
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)
 
       setB rr = \case
