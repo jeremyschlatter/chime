@@ -67,7 +67,7 @@ builtins = (globe <~) $ traverse
   , "stat"
   , "coin"
   , "err"
-  ] <> fmap (second (fmap Pair . newRef . OptimizedFunction)) predefinedMacros
+  ] <> fmap (second (fmap Pair . newRef . OptimizedFunction)) (predefinedMacros <> predefinedFns)
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -242,8 +242,82 @@ predefinedMacros =
   , ("mac",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
       [n, p, e] -> formSet =<<
         ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
-      args -> wrongParamCount "mac" args 3
+      args -> wrongParamCount' "mac" args 3
+  , ("bquote",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [e] -> bqex e 0 >>= \case
+        (sub, True) -> evreturn sub
+        _ -> pure e
+      args -> wrongParamCount' "bquote" args 1
+  , ("comma",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+      throwError $ "comma outside backquote"
+  , ("comma-at",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+      throwError $ "comma-at outside backquote"
+  , ("splice",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+      throwError $ "comma-at outside list"
   ]
+
+predefinedFns :: [(String, OptimizedFunction IORef)]
+predefinedFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
+  [ ("spa",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [x] -> case x of
+        Symbol Nil -> pure x
+        Pair _ -> pure x
+        _ -> throwError "splice-atom"
+      args -> wrongParamCount' "spa" args 1
+  , ("spd",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [x] -> case x of
+        Symbol Nil -> throwError "splice-empty-cdr"
+        Pair r -> readPair "spd" r >>= (. snd) \case
+          Symbol Nil -> pure x
+          _ -> throwError "splice-multiple-cdrs"
+        _ -> throwError "splice-atom"
+      args -> wrongParamCount' "spd" args 1
+  ]
+
+cadr :: Object IORef -> EvalMonad (Object IORef)
+cadr = cdr' >=> car'
+
+carisSplice :: Object IORef -> EvalMonad Bool
+carisSplice = \case
+  Pair r -> readPair "carisSplice" r <&> (. fst) \case
+    Sym 's' "plice" -> True
+    _ -> False
+  _ -> pure False
+
+bqex :: Object IORef -> Natural -> EvalMonad (Object IORef, Bool)
+bqex e n = case e of
+  Symbol Nil -> pure (Symbol Nil, False)
+  Pair _ -> car' e >>= \case
+    Sym 'b' "quote" -> bqthru e (n + 1) (symbol "bquote")
+    Sym 'c' "omma" -> case n of
+      0 -> cadr e <&> (, True)
+      _ -> bqthru e (n - 1) (symbol "comma")
+    Sym 'c' "omma-at" -> case n of
+      0 -> ("splice" ~| cadr e) <&> (, True)
+      _ -> bqthru e (n - 1) (symbol "comma-at")
+    _ -> bqexpair e n
+  _ -> quote e <&> (, False)
+
+bqthru :: Object IORef -> Natural -> Symbol -> EvalMonad (Object IORef, Bool)
+bqthru e n op = cadr e >>= flip bqex n >>= \case
+  (sub, True) -> fmap (, True) $ carisSplice sub >>= \case
+    True -> "cons" ~~ (quote @EvalMonad $ Symbol op) ~| cadr sub
+    False -> "list" ~~ (quote @EvalMonad $ Symbol op) ~| sub
+  _ -> quote e <&> (, False)
+
+bqexpair :: Object IORef -> Natural -> EvalMonad (Object IORef, Bool)
+bqexpair e n = do
+  (a, achange) <- car' e >>= flip bqex n
+  (d, dchange) <- cdr' e >>= flip bqex n
+  if achange || dchange
+  then fmap (, True) $ carisSplice d >>= \case
+    True -> carisSplice a >>= \case
+      True -> "apply" ~~ "append" ~~ ("spa" ~| cadr a) ~| ("spd" ~| cadr d)
+      False -> "apply" ~~ "cons" ~~ a ~| ("spd" ~| cadr d)
+    False -> carisSplice a >>= \case
+      True -> "append" ~~ ("spa" ~| cadr a) ~| d
+      False -> "cons" ~~ a ~| d
+  else quote e <&> (, False)
 
 nativeMacros :: [(String, OptimizedFunction IORef)]
 nativeMacros =
@@ -319,7 +393,7 @@ nth = \case
 
 withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
 withNativeFns startState = foldM oneFn startState fns where
-  fns = predefinedMacros <> nativeFns <> nativeMacros
+  fns = predefinedMacros <> predefinedFns <> nativeFns <> nativeMacros
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing ->
@@ -590,8 +664,8 @@ primitives = (\p -> (primName p, p)) <$>
       (Pair a, Pair b) -> a == b
       _ -> False
   , Prim2 "join" (.*)
-  , carAndCdr "car" fst 'a'
-  , carAndCdr "cdr" snd 'd'
+  , Prim1 "car" car'
+  , Prim1 "cdr" cdr'
   , Prim1 "type" $ let
       go = \case
         Symbol _ -> 's' :| "ymbol"
@@ -680,24 +754,38 @@ primitives = (\p -> (primName p, p)) <$>
       pure $ Symbol $ symbol $ bool "nil" "t" result
   -- @incomplete: this throws away info when the argument is not a string
   -- @consider: what if another error is signaled during evaluation of the argument?
-  , Prim1 "err" $ \x -> repr x >>= \rep -> string x >>= E.throwError . \case
+  , Prim1 "err" $ \x -> repr x >>= \rep -> string x >>= throwErrorWithStack . \case
       Nothing -> rep
       Just s -> unCharacter <$> s
   ] where
-      carAndCdr nm f w = Prim1 nm \case
-        Symbol Nil -> pure $ Symbol Nil
-        -- If we are inside a "where", return the tuple and our location.
-        -- Otherwise, we return the normal value.
-        Pair ra -> readPair "car/cdr" ra >>= \tup -> use locs >>= \case
-          Just _:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
-          _ -> pure $ f tup
-        x -> repr x >>= \s -> throwError $ nm
-          <> " is only defined on pairs and nil. " <> s <> " is neither of those."
+      throwErrorWithStack s = use doDebug >>= \case
+        True -> use stack >>=
+          ((fmap $ ("\n" <>) . intercalate "\n") . traverse repr) >>= E.throwError . (s <>)
+        False -> E.throwError s
       xarAndXdr nm which = Prim2 nm $ curry \case
         (Pair r, y) -> ((readPair "xar/xdr" r <&> MkPair . (which $ const y)) >>= writeRef r) $> y
         (x, _) -> repr x >>= \s -> throwError $ nm
           <> " is only defined when the first argument is a pair. "
           <> s <> " is not a pair."
+
+-- TODO: rename to car, resolve name conflicts
+car' :: Object IORef -> EvalMonad (Object IORef)
+car' = carAndCdr "car" fst 'a'
+
+-- TODO: rename to cdr, resolve name conflicts
+cdr' :: Object IORef -> EvalMonad (Object IORef)
+cdr' = carAndCdr "cdr" snd 'd'
+
+carAndCdr :: String -> (forall a. (a, a) -> a) -> Char -> Object IORef -> EvalMonad (Object IORef)
+carAndCdr nm f w = \case
+  Symbol Nil -> pure $ Symbol Nil
+  -- If we are inside a "where", return the tuple and our location.
+  -- Otherwise, we return the normal value.
+  Pair ra -> readPair nm ra >>= \tup -> use locs >>= \case
+    Just _:rest -> (locs .= rest) *> (Pair ra ~| Sym @IORef w "")
+    _ -> pure $ f tup
+  x -> repr x >>= \s -> throwError $ nm
+    <> " is only defined on pairs and nil. " <> s <> " is neither of those."
 
 toStream :: Direction -> Object IORef -> EvalMonad (Maybe (IORef Stream))
 toStream = runMaybeT .: curry \case
@@ -909,6 +997,11 @@ excessPrimParams nm args n =
 wrongParamCount :: String -> [a] -> Int -> EvalMonad (Object IORef)
 wrongParamCount nm args n =
   throwError $ "Wrong number of parameters in special form " <> nm
+    <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."
+
+wrongParamCount' :: String -> [a] -> Int -> EvalMonad (Object IORef)
+wrongParamCount' nm args n =
+  throwError $ "Wrong number of parameters for " <> nm
     <> ". Got " <> show (length args) <> ", want exactly " <> show n <> "."
 
 fromBool :: Bool -> Object r

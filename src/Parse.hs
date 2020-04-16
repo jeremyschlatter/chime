@@ -117,22 +117,11 @@ character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescap
 character :: Parser m Character
 character = character' $ char '\\' *> lexeme (regularChar <|> oneOf "#\",`'\\.[]():!~| ")
 
-quotedExpression :: MonadMutableRef m => Parser m (Object (Ref m))
-quotedExpression = char '\'' *> expression >>= quote
-
-backQuotedList :: MonadMutableRef m => Parser m (Object (Ref m))
-backQuotedList = char '`' *> surround "(" ")" (many expression) >>= pureListToObject >>=
-  -- @incomplete: implement this in a way that cannot clash with user symbols
-  ("~backquote" .|)
+quoted :: MonadMutableRef m => String -> String -> Parser m (Object (Ref m))
+quoted p q = lexLit p *> expression >>= (q .|)
 
 mkPair' :: MonadRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
 mkPair' a b = fmap Pair $ newRef $ MkPair $ (a, b)
-
-commaExpr :: MonadMutableRef m => Parser m (Object (Ref m))
-commaExpr = char ',' *> (atExpr <|> expr) where
-  -- @incomplete: implement this in a way that cannot clash with user symbols
-  expr = expression >>= mkPair' (Sym '~' "comma")
-  atExpr = char '@' *> expression >>= mkPair' (Sym '~' "splice")
 
 -- [f _ x] -> (fn (_) (f _ x))
 bracketFn :: MonadMutableRef m => Parser m (Object (Ref m))
@@ -189,9 +178,10 @@ sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
 expression :: MonadMutableRef m => Parser m (Object (Ref m))
 expression =  composedSymbols
           <|> lexeme sharedPair
-          <|> quotedExpression
-          <|> backQuotedList
-          <|> commaExpr
+          <|> quoted "'" "quote"
+          <|> quoted "`" "bquote"
+          <|> quoted ",@" "comma-at"
+          <|> quoted "," "comma"
           <|> string
           <|> bracketFn
           <|> (pair >>= fmap Pair . newRef)

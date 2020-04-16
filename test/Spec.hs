@@ -151,6 +151,8 @@ spec = do
       "(car \\x)" `is` "<error>"
       "(cdr 'x)" `is` "<error>"
       "(cdr \\x)" `is` "<error>"
+      -- https://stackoverflow.com/a/7549810
+      "``(a ,,(+ 1 2) ,(+ 3 4))" `is` "(bquote (a (comma 3) (comma (+ 3 4))))"
 
   describe "multi-line repl sessions" do
 
@@ -630,8 +632,7 @@ spec = do
       "(let x '(a b c) `,@x)" `is` "<error>"
       "(let x '(b c) `(a . ,@x))" `is` "<error>"
 
-      -- @skip: this example does not parse
-      -- "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
+      "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
 
       "(bqex '(bquote (comma (comma x))) nil)"
         `is` "((list (quote bquote) (list (quote comma) x)) t)"
