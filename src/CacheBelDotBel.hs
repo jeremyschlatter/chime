@@ -3,7 +3,6 @@ module CacheBelDotBel where
 import BasePrelude
 import Control.Monad.Trans.Maybe
 import Data.Bitraversable
-import Data.FileEmbed
 import Language.Haskell.TH.Syntax
 
 import Data
@@ -12,9 +11,6 @@ import Parse
 
 serializedBelDotBelState :: Q Exp
 serializedBelDotBelState = runIO (preludeIO >>= stateToString) >>= liftString
-
-belDotBel :: String
-belDotBel = $(embedStringFile "reference/bel.bel")
 
 envToObject :: (MonadRef m, IORef ~ Ref m) => Environment -> m (Object IORef)
 envToObject = pureListToObject . fmap Pair
