@@ -194,25 +194,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         Just _ -> Sym 't' ""
         _ -> Symbol Nil
       _ -> throwError "wrong number of arguments"
-  , ("prsimple",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [x, s] -> toStream Out s >>= \case
-        Just ref -> readRef ref >>= \case
-          MkStream h _ _ 7 -> let
-            -- @consider: prsimple in bel.bel does not always return nil
-            -- maybe this should mirror that behavior more accurately?
-            proceed = (repr x >>= liftIO . hPutStr h) $> Symbol Nil
-            in runMaybeT (number x) >>= \mn -> case (mn, x) of
-              (_, Symbol _) -> proceed
-              (_, Character _) -> proceed
-              (_, Stream _) -> proceed
-              (Just _, _) -> proceed
-              _ -> throwError "cannot-print"
-          _ -> throwError $
-            "Tried to call prnum after writing n bits to this stream, where n % 8 != 0\n"
-              <> "That was probably a mistake, but either way that operation is not supported "
-              <> "right now. Sorry."
-        _ -> typecheckFailure
-      _ -> throwError "wrong number of arguments"
   , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x] -> case x of
         (Symbol Nil) -> pure $ Sym 't' ""

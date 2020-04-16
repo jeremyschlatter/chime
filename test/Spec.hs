@@ -747,12 +747,11 @@ spec = do
 --         >> "(foo 'b)"
 --         > "(a . b)"
 
---       @skip
---       replTest $ []
---         >> "(record (pr 'what) (pr \\ ) (pr \"he said\"))"
---         > "\"what he said\""
---         >> "(prs 'what \\ \"he said\")"
---         > "\"what he said\""
+      replTest $ []
+        >> "(record (pr 'what) (pr \\ ) (pr \"he said\"))"
+        > "\"what he said\""
+        >> "(prs 'what \\ \"he said\")"
+        > "\"what he said\""
 
       replTest $ []
         >> "(set a (array '(2 3) 0))"
