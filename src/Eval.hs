@@ -987,4 +987,4 @@ repl = withNativeFns >=> \st -> getArgs >>= \case
       _ -> False
 
 belDotBel :: String
-belDotBel = $(embedStringFile "reference/bel.bel") <> $(embedStringFile "src/extensions.bel")
+belDotBel = $(embedStringFile "src/prelude.bel") <> $(embedStringFile "src/extensions.bel")
