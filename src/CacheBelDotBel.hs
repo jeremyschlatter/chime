@@ -23,7 +23,7 @@ toKVPair = \case
   _ -> pure Nothing
 
 objectToEnv :: (MonadMutableRef m, IORef ~ Ref m) => Object IORef -> m (Maybe Environment)
-objectToEnv = runMaybeT . flip properListOf \case
+objectToEnv = runMaybeT . properListOf \case
   Pair ref -> pure ref
   _ -> empty
 

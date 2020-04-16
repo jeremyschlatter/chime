@@ -175,7 +175,7 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> Just <$> tooFewArguments
         [_] -> Just <$> tooFewArguments
         [cs, base] -> bisequence
-          (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
+          (unCharacter <$$$> string cs, runMaybeT (properListOf symT base)) >>= \case
             (Just s, Just (length -> n)) | n == 10 ->
               map Just $ evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
                 fromRight (Symbol Nil)
@@ -490,9 +490,7 @@ toVariable = \case
 function :: [Object IORef] -> MaybeT EvalMonad Closure
 function x = case x of
   [Sym 'l' "it", Sym 'c' "lo", env, params, body] -> do
-    env' <- properListOf env \case
-      Pair r -> pure r
-      _ -> empty
+    env' <- properListOf (\case Pair r -> pure r; _ -> empty) env
     pure $ MkClosure env' params body
   _ -> empty
 
@@ -504,7 +502,7 @@ macro = \case
 virfn :: [Object IORef] -> MaybeT EvalMonad Closure
 virfn = \case
   Sym 'l' "it" : f : _ -> use globe >>= envLookup' (Sym 'v' "irfns") >>=
-    flip properListOf env . snd >>= envLookup' f >>= MaybeT . properList . snd >>= function
+    properListOf env . snd >>= envLookup' f >>= MaybeT . properList . snd >>= function
   _ -> empty
   where
     env = \case Pair p -> pure p; _ -> empty

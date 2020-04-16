@@ -238,8 +238,8 @@ properList = \case
 
 properListOf
   :: (MonadMutableRef m, r ~ Ref m)
-  => Object r -> (Object r -> MaybeT m a) -> MaybeT m [a]
-properListOf x f = MaybeT (properList x) >>= traverse f
+  => (Object r -> MaybeT m a) -> Object r -> MaybeT m [a]
+properListOf f x = MaybeT (properList x) >>= traverse f
 
 string :: (MonadRef m, r ~ Ref m) => Object r -> m (Maybe [Character])
 string = runMaybeT . go where

@@ -83,10 +83,10 @@ spec = do
       "o" `is` "o"
       "apply" `is` "apply"
 
-      evalAndInspect prelude "chars" "a list of (<char> . <binary rep>)" $ flip properListOf \case
+      evalAndInspect prelude "chars" "a list of (<char> . <binary rep>)" $ properListOf \case
          Pair p -> (readPair "" p >>= \case (Character _, s) -> string s; _ -> empty); _ -> empty
 
-      let evalEnv = \x -> evalAndInspect prelude x "a list of (var . val)" $ flip properListOf \case
+      let evalEnv = \x -> evalAndInspect prelude x "a list of (var . val)" $ properListOf \case
             Pair p -> (readPair "" p >>= \case (Symbol _, _) -> pure (); _ -> empty); _ -> empty
       evalEnv "globe"
       evalEnv "scope"
