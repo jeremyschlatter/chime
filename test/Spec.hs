@@ -630,9 +630,7 @@ spec = do
 
       "(let x '(a b c) `,@x)" `is` "<error>"
       "(let x '(b c) `(a . ,@x))" `is` "<error>"
-
       "(with (x 'a y '(b)) `(,x . ,@y))" `is` "(a . b)"
-
       "(bqex '(bquote (comma (comma x))) nil)"
         `is` "((list (quote bquote) (list (quote comma) x)) t)"
       "(let x '(a b c) `,,x)" `is` "<error>"
@@ -679,8 +677,11 @@ spec = do
           x)
         |] `is` "abcnil"
       slow {- 0.1 second -} $ "(loop x 1 (+ x 1) (< x 5) (pr x))" `is` "1234nil"
-      -- @skip
+      -- Spec bug: This example is incorrect. Corrected version below.
+      -- The reason is that (pr nil) prints no characters, because it hits the
+      -- string case of prnice.
       -- "(let x '(a b c) (while (pop x) (pr x)))" `is` "(b c)(c)nilnil"
+      "(let x '(a b c) (while (pop x) (pr x)))" `is` "(b c)(c)nil"
       slow {- 0.1 second -} $
         [r|
         (let x '(a b c d e)
