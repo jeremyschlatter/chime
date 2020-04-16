@@ -1,7 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Data where
 
-import BasePrelude
 import Control.Lens.Combinators (makeLenses, makePrisms)
 import Control.Monad.Cont
 import Control.Monad.Except
@@ -188,7 +187,7 @@ instance ToObject m r [m (Object r)] where
     [] -> toObject "nil"
     x:xs -> x .* toObject @m @r xs
 instance ToObject m r (Complex Rational) where
-  toObject n = fmap Pair $ newRef $ Number n
+  toObject n = map Pair $ newRef $ Number n
 instance ToObject m r Bool where
   toObject = pure . \case
     True -> Sym 't' ""
@@ -216,7 +215,7 @@ pureListToObject = \case
 
 (.*) :: forall m r a b. (MonadRef m, r ~ Ref m, ToObject m r a, ToObject m r b)
      => a -> b -> m (Object r)
-(.*) = fmap Pair . ((newRef . MkPair) =<<) . bimapM (toObject @m) (toObject @m) .: (,)
+(.*) = map Pair . ((newRef . MkPair) =<<) . bimapM (toObject @m) (toObject @m) .: (,)
 infixr 4 .*
 (.|) :: forall m r a b. (MonadRef m, r ~ Ref m, ToObject m r a, ToObject m r b)
      => a -> b -> m (Object r)
@@ -229,7 +228,7 @@ infixr 4 ><
 
 properList1 :: (MonadMutableRef m, r ~ Ref m) => r (Pair r) -> m (Maybe (NonEmpty (Object r)))
 properList1 ref = readPair "properList1" ref >>=
-  \(car, cdr) -> fmap (car :|) <$> properList cdr
+  \(car, cdr) -> map (car :|) <$> properList cdr
 
 properList :: (MonadMutableRef m, r ~ Ref m) => Object r -> m (Maybe [Object r])
 properList = \case
@@ -262,7 +261,7 @@ type Shares r = [(r (Pair r), (Int, Bool))]
 type EqRef r = forall a. Eq (r a)
 
 collectPairs :: forall m r. (MonadRef m, r ~ Ref m, EqRef r) => r (Pair r) -> m (Shares r)
-collectPairs = fmap fst . go ([], []) . Pair where
+collectPairs = map fst . go ([], []) . Pair where
   go :: (Shares r, [r (Pair r)]) -> Object r -> m (Shares r, [r (Pair r)])
   go (shares, seen) = \case
     Pair ref ->
@@ -344,7 +343,7 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
               Number n -> pure $ ms <> showNumber n
               Continuation _ -> pure $ ms <> "<continuation>"
               OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>=
-                (fmap (ms <>)) . reprShare
+                (map (ms <>)) . reprShare
               MkPair (car, cdr) -> reprShare car >>= \car' ->
                 (\s -> (ms <> pre <> s <> post)) . (car' <>)
                   <$> mcase2 (number, id) cdr \case

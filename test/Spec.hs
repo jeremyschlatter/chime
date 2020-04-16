@@ -1,6 +1,5 @@
 module Main where
 
-import BasePrelude hiding (trace, (>), (>>), (>>>))
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as B
 import Data.Text (unpack)
@@ -11,7 +10,7 @@ import System.Random
 import Test.HUnit.Base
 import Test.Hspec
 
-import Common
+import Common hiding (trace, (>), (>>), (>>>))
 import Data
 import Eval
 import Parse hiding (string)
@@ -947,7 +946,7 @@ parseThenPrintShouldBe a b = parse @IO "test case" a >>=
 --                           eval test helpers
 
 failure :: String -> IO a
-failure = fmap undefined . expectationFailure
+failure = map undefined . expectationFailure
 
 stackTrace :: EvalState -> IO String
 stackTrace = (. _stack) \case

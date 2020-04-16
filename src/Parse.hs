@@ -3,12 +3,11 @@ module Parse
   , module Text.Megaparsec.Error
   ) where
 
-import BasePrelude hiding (try, many)
 import Control.Applicative.Combinators.NonEmpty
 import Control.Monad.Trans.State (StateT, evalStateT)
 import Control.Monad.State.Class
 import Data.Bitraversable
-import Data.List.NonEmpty as NE
+import Data.List.NonEmpty as NE hiding (map)
 import qualified Data.Map.Strict as Map
 
 import Text.Megaparsec hiding (parse, sepBy1)
@@ -17,7 +16,7 @@ import Text.Megaparsec.Char hiding (string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error (errorBundlePretty)
 
-import Common
+import Common hiding (try, many)
 import Data hiding (string, number, o)
 
 type ParseState r = Map.Map Int (r (Pair r))
@@ -105,10 +104,10 @@ string = (char '"' *>) $ (<* lexLit "\"") $
 pair :: MonadMutableRef m => Parser m (Pair (Ref m))
 pair = surround "(" ")" pair' where
   pair' = liftA2 (curry MkPair) expression $
-    (lexLit ". " *> expression) <|> (pair' >>= fmap Pair . newRef) <|> (pure $ Symbol Nil)
+    (lexLit ". " *> expression) <|> (pair' >>= map Pair . newRef) <|> (pure $ Symbol Nil)
 
 character' :: Parser m Char -> Parser m Character
-character' unescaped = fmap MkCharacter $ try (char '\\' *> escaped) <|> unescaped where
+character' unescaped = map MkCharacter $ try (char '\\' *> escaped) <|> unescaped where
   escaped =
   -- @performance: long alternation of parsers here, could be replaced
   --   with a single parser and a case expression or similar
@@ -121,7 +120,7 @@ quoted :: MonadMutableRef m => String -> String -> Parser m (Object (Ref m))
 quoted p q = lexLit p *> expression >>= (q .|)
 
 mkPair' :: MonadRef m => Object (Ref m) -> Object (Ref m) -> m (Object (Ref m))
-mkPair' a b = fmap Pair $ newRef $ MkPair $ (a, b)
+mkPair' a b = map Pair $ newRef $ MkPair $ (a, b)
 
 -- [f _ x] -> (fn (_) (f _ x))
 bracketFn :: MonadMutableRef m => Parser m (Object (Ref m))
@@ -155,7 +154,7 @@ number = complex >>= toObject where
     x:xs -> (x % base) + sumDecimalDigits (base * 10) xs
   integer :: Parser m Integer
   integer = L.decimal
-  opt p = fmap Just (try p) <|> pure Nothing
+  opt p = map Just (try p) <|> pure Nothing
 
 sharedPair :: forall m. MonadMutableRef m => Parser m (Object (Ref m))
 sharedPair = char '#' *> L.decimal >>= \n -> tag n <|> ref n where
@@ -184,7 +183,7 @@ expression =  composedSymbols
           <|> quoted "," "comma"
           <|> string
           <|> bracketFn
-          <|> (pair >>= fmap Pair . newRef)
+          <|> (pair >>= map Pair . newRef)
           <|> (Character <$> character)
 
 bom :: Parser m ()

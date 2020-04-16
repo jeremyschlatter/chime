@@ -1,7 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import BasePrelude as P hiding (evaluate, getEnv, head, tail, mask, hClose)
 import Control.Lens.Combinators hiding (op)
 import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
@@ -27,7 +26,7 @@ import System.Random
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Error
 
-import Common
+import Common as P hiding (evaluate, getEnv, head, tail, mask, hClose)
 import Data
 import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
 import qualified Parse
@@ -44,13 +43,13 @@ builtins = (globe <~) $ traverse
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
               toObject . bool '0' '1' . testBit w <$> P.reverse [0..7]
-      in listToObject $ flip fmap [0..127] \i ->
+      in listToObject $ flip map [0..127] \i ->
            chr i .* (
             listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
           )
     )
   , ("vmark", Pair <$> use vmark)
-  ] <> fmap (\p -> (p, "lit" ~~ "prim" ~| p))
+  ] <> map (\p -> (p, "lit" ~~ "prim" ~| p))
   [ "id"
   , "join"
   , "car"
@@ -67,7 +66,7 @@ builtins = (globe <~) $ traverse
   , "stat"
   , "coin"
   , "err"
-  ] <> fmap (second (fmap Pair . newRef . OptimizedFunction)) (predefinedMacros <> predefinedFns)
+  ] <> map (second (map Pair . newRef . OptimizedFunction)) (predefinedMacros <> predefinedFns)
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -79,7 +78,7 @@ builtins = (globe <~) $ traverse
       x:xs -> MkSymbol (x :| xs)
 
 nativeFns :: [(String, OptimizedFunction IORef)]
-nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
+nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
   [ ("+",) $ numFnN $ foldr numAdd (0 :+ 0)
   , ("-",) $ numFnN \case
       [] -> (0 :+ 0)
@@ -114,7 +113,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
             \((aa, ad), (ba, bd)) -> eq aa ba >>= bool (pure False) (eq ad bd)
           _ -> pure False
         _ -> pure False
-      in fmap (Just . bool (Symbol Nil) (Sym 't' "")) . \case
+      in map (Just . bool (Symbol Nil) (Sym 't' "")) . \case
         a:b:cs -> go a (b:cs)
         _ -> pure True
   , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
@@ -122,7 +121,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> pure $ Symbol Nil
         [x] -> pure x
         x:xs -> x ~~ go xs
-      in fmap Just . go
+      in map Just . go
   , ("append",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
       go accum = \case
@@ -135,8 +134,8 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         x : xs -> properList x >>= \case
           Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
           Just l -> go (accum <> l) xs
-      in fmap Just . go []
-  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      in map Just . go []
+  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> tooFewArguments
       [_] -> tooFewArguments
       _:_:_:_ -> tooManyArguments
@@ -163,7 +162,7 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
           (const $ go bs s)
           (pure . Character . MkCharacter . T.head)
           (decodeUtf8' bs)
-      in fmap Just . \case
+      in map Just . \case
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
@@ -178,24 +177,24 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [cs, base] -> bisequence
           (unCharacter <$$$> string cs, runMaybeT (properListOf base symT)) >>= \case
             (Just s, Just (length -> n)) | n == 10 ->
-              fmap Just $ evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
+              map Just $ evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
                 fromRight (Symbol Nil)
             -- @performance: handle bases other than 10 natively
             _ -> pure Nothing
         _:_:_:_ -> Just <$> tooManyArguments
 
-  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> tooFewArguments
       _:_:_ -> tooManyArguments
       [x] -> runMaybeT (number x) >>= \case
         Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
         _ -> typecheckFailure
-  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [n] -> (runMaybeT (number n)) <&> \case
         Just _ -> Sym 't' ""
         _ -> Symbol Nil
       _ -> throwError "wrong number of arguments"
-  , ("prsimple",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("prsimple",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x, s] -> toStream Out s >>= \case
         Just ref -> readRef ref >>= \case
           MkStream h _ _ 7 -> let
@@ -214,16 +213,16 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
               <> "right now. Sorry."
         _ -> typecheckFailure
       _ -> throwError "wrong number of arguments"
-  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x] -> case x of
         (Symbol Nil) -> pure $ Sym 't' ""
         _ -> pure $ Symbol Nil
       _ -> throwError "wrong number of arguments"
 
-  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> doDebug <%= not >>= toObject
       _ -> tooManyArguments
-  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x] -> do
         start <- liftIO getCurrentTime
         result <- evaluate x
@@ -235,36 +234,36 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
 
 predefinedMacros :: [(String, OptimizedFunction IORef)]
 predefinedMacros =
-  [ ("set",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . formSet
-  , ("def",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  [ ("set",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . formSet
+  , ("def",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> throwError "'def' received no arguments"
       n:rest -> fn rest >>= formSet . (n:) . pure
-  , ("mac",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("mac",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [n, p, e] -> formSet =<<
         ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
       args -> wrongParamCount' "mac" args 3
-  , ("bquote",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("bquote",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [e] -> bqex e 0 >>= \case
         (sub, True) -> evreturn sub
         _ -> pure e
       args -> wrongParamCount' "bquote" args 1
-  , ("comma",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+  , ("comma",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
       throwError $ "comma outside backquote"
-  , ("comma-at",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+  , ("comma-at",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
       throwError $ "comma-at outside backquote"
-  , ("splice",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \_ ->
+  , ("splice",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
       throwError $ "comma-at outside list"
   ]
 
 predefinedFns :: [(String, OptimizedFunction IORef)]
-predefinedFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
-  [ ("spa",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+predefinedFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
+  [ ("spa",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x] -> case x of
         Symbol Nil -> pure x
         Pair _ -> pure x
         _ -> throwError "splice-atom"
       args -> wrongParamCount' "spa" args 1
-  , ("spd",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("spd",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [x] -> case x of
         Symbol Nil -> throwError "splice-empty-cdr"
         Pair r -> readPair "spd" r >>= (. snd) \case
@@ -300,7 +299,7 @@ bqex e n = case e of
 
 bqthru :: Object IORef -> Natural -> Symbol -> EvalMonad (Object IORef, Bool)
 bqthru e n op = cadr e >>= flip bqex n >>= \case
-  (sub, True) -> fmap (, True) $ carisSplice sub >>= \case
+  (sub, True) -> map (, True) $ carisSplice sub >>= \case
     True -> "cons" ~~ (quote @EvalMonad $ Symbol op) ~| cadr sub
     False -> "list" ~~ (quote @EvalMonad $ Symbol op) ~| sub
   _ -> quote e <&> (, False)
@@ -310,7 +309,7 @@ bqexpair e n = do
   (a, achange) <- car' e >>= flip bqex n
   (d, dchange) <- cdr' e >>= flip bqex n
   if achange || dchange
-  then fmap (, True) $ carisSplice d >>= \case
+  then map (, True) $ carisSplice d >>= \case
     True -> carisSplice a >>= \case
       True -> "apply" ~~ "append" ~~ ("spa" ~| cadr a) ~| ("spd" ~| cadr d)
       False -> "apply" ~~ "cons" ~~ a ~| ("spd" ~| cadr d)
@@ -327,7 +326,7 @@ nativeMacros =
         x:xs -> evaluate x >>= \case
           Symbol Nil -> go xs
           x' -> pure x'
-      in fmap Just . go
+      in map Just . go
   , ("and",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       go = \case
         [] -> pure $ Sym 't' ""
@@ -335,10 +334,10 @@ nativeMacros =
         x:xs -> evaluate x >>= \case
           Symbol Nil -> pure $ Symbol Nil
           _ -> go xs
-      in fmap Just . go
-  , ("fn",) $ MkOptimizedFunction (fmap Just . fn) (Symbol Nil, Symbol Nil)
+      in map Just . go
+  , ("fn",) $ MkOptimizedFunction (map Just . fn) (Symbol Nil, Symbol Nil)
 
-  , ("ifwhere",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+  , ("ifwhere",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> tooFewArguments
       [_] -> tooFewArguments
       [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
@@ -398,7 +397,7 @@ withNativeFns startState = foldM oneFn startState fns where
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing ->
       if nm `elem` ["time", "debug", "ifwhere"]
-      then (fmap Pair . newRef . OptimizedFunction) f >>= \x ->
+      then (map Pair . newRef . OptimizedFunction) f >>= \x ->
         (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
       else interpreterBug $ nm <> " was not present in the global state"
     Just (_, p) -> case p of
@@ -432,14 +431,14 @@ numFnN
 numFnN f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $
   traverse (runMaybeT . number) >=> maybe
     (pure Nothing)
-    (fmap Just . toObject . f)
+    (map Just . toObject . f)
     . sequence
 
 numFn1 :: (ToObject EvalMonad IORef r) => (Number -> r) -> OptimizedFunction IORef
 numFn1 f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
   [x] -> runMaybeT (number x) >>= maybe
     (pure Nothing)
-    (fmap Just . toObject . f)
+    (map Just . toObject . f)
   _ -> Just <$> tooFewArguments
 
 throwError :: String -> EvalMonad (Object IORef)
@@ -574,7 +573,7 @@ specialForms = (\f -> (formName f, f)) <$>
             <> "that has not been implemented yet)."
           Just lst -> go' acc lst where
             go' acc' = \case
-              [] -> listToObject (pure (head ll) : fmap quote (tail ll)) >>= evreturn
+              [] -> listToObject (pure (head ll) : map quote (tail ll)) >>= evreturn
                 where ll = NE.reverse acc'
               c:cs -> go' (c<|acc') cs
       badParams = throwError "apply requires at least two parameters"
@@ -605,7 +604,7 @@ specialForms = (\f -> (formName f, f)) <$>
             Left car -> car .* cdr
             Right prefix -> append prefix cdr
         x -> pure $ Left x
-      in fmap (either id id) . go
+      in map (either id id) . go
   ]
 
 formWhere :: Bool -> Object IORef -> EvalMonad (Object IORef)
@@ -630,7 +629,7 @@ infixr 4 ~|
 
 append :: Object IORef -> Object IORef -> EvalMonad (Object IORef)
 append a b = bimapM properList properList (a, b) >>= \case
-  (Just a', Just b') -> listToObject . fmap pure $ a' <> b'
+  (Just a', Just b') -> listToObject . map pure $ a' <> b'
   _ -> throwError "non-lists in splice"
 
 data Primitive
@@ -676,7 +675,7 @@ primitives = (\p -> (primName p, p)) <$>
   , xarAndXdr "xar" first
   , xarAndXdr "xdr" second
   , Prim1 "sym" \x -> string x >>= \s' -> case s' >>= nonEmpty of
-      Just s -> pure $ Symbol $ MkSymbol $ fmap unCharacter s
+      Just s -> pure $ Symbol $ MkSymbol $ map unCharacter s
       Nothing -> repr x >>= \rep -> throwError $ "sym is only defined on non-empty strings. "
         <> rep <> " is not a non-empty string."
   , Prim1 "nom" \case
@@ -760,7 +759,7 @@ primitives = (\p -> (primName p, p)) <$>
   ] where
       throwErrorWithStack s = use doDebug >>= \case
         True -> use stack >>=
-          ((fmap $ ("\n" <>) . intercalate "\n") . traverse repr) >>= E.throwError . (s <>)
+          ((map $ ("\n" <>) . intercalate "\n") . traverse repr) >>= E.throwError . (s <>)
         False -> E.throwError s
       xarAndXdr nm which = Prim2 nm $ curry \case
         (Pair r, y) -> ((readPair "xar/xdr" r <&> MkPair . (which $ const y)) >>= writeRef r) $> y
@@ -839,10 +838,10 @@ destructure p a' = pushScope *> go p a' <* popScope where
       Symbol Nil -> Left <$> typecheckFailure
       _ -> go v arg
     -- @incomplete: Show more information about the function
-    Case3of3 (Character _) -> fmap Left $ throwError $
+    Case3of3 (Character _) -> map Left $ throwError $
       "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a character."
-    Case3of3 (Stream _) -> fmap Left $ throwError $
+    Case3of3 (Stream _) -> map Left $ throwError $
       "Invalid function definition. The parameter definition must "
       <> "consist entirely of variables, but this one contained a stream."
     Case3of3 (Symbol _) -> interpreterBug "I mistakenly thought `toVariable` caught all symbols"
@@ -903,7 +902,7 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
     "globe" -> getEnv globe
     "scope" -> getEnv $ scope._Wrapped._1
     _ -> vref expr
-    where getEnv = use >=> listToObject . fmap (pure . Pair)
+    where getEnv = use >=> listToObject . map (pure . Pair)
 
   -- pairs
   Pair ref -> readRef ref >>= \case
@@ -929,7 +928,7 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
               _ -> throwError "tried to call a continuation with too many arguments"
             TheOptimizedFunction f -> fnBody f args >>= \case
               Just x -> pure x
-              Nothing -> (fmap Pair $ newRef $ MkPair $ fnFallback f) >>= operator >>= \case
+              Nothing -> (map Pair $ newRef $ MkPair $ fnFallback f) >>= operator >>= \case
                 Nothing -> interpreterBug "sorry! the implementor of chime messed up here."
                 Just x -> operate x
             Primitive p -> case p of
@@ -958,7 +957,7 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
               FormN _ f -> f args
               Lit -> pure expr
             Closure (MkClosure env params body) ->
-              (traverse evaluate >=> listToObject . fmap pure >=> destructure params) args >>=
+              (traverse evaluate >=> listToObject . map pure >=> destructure params) args >>=
                 either pure
                   (\bound -> withScope (bound <> env) (evreturn body))
             Macro (MkClosure env params body) -> do

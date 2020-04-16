@@ -1,9 +1,12 @@
-module Common where
+module Common (module Common, module BasePrelude) where
 
-import BasePrelude
+import BasePrelude hiding (map)
 
 bind :: Monad m => m a -> (a -> m b) -> m b
 bind = (>>=)
+
+map :: Functor f => (a -> b) -> f a -> f b
+map = fmap
 
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.:) = (.) . (.)
@@ -14,15 +17,15 @@ infixr 8 .:
 infixl 5 <%>
 
 (<&&>) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
-(<&&>) = flip $ fmap . fmap
+(<&&>) = flip $ map . map
 infixl 1 <&&>
 
 (<$$>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
-(<$$>) = fmap . fmap
+(<$$>) = map . map
 infixl 4 <$$>
 
 (<$$$>) :: (Functor f, Functor g, Functor h) => (a -> b) -> f (g (h a)) -> f (g (h b))
-(<$$$>) = fmap . fmap . fmap
+(<$$$>) = map . map . map
 infixl 4 <$$$>
 
 type String1 = NonEmpty Char

@@ -1,10 +1,10 @@
 module CacheBelDotBel where
 
-import BasePrelude
 import Control.Monad.Trans.Maybe
 import Data.Bitraversable
 import Language.Haskell.TH.Syntax
 
+import Common
 import Data
 import Eval
 import Parse
@@ -13,7 +13,7 @@ serializedBelDotBelState :: Q Exp
 serializedBelDotBelState = runIO (preludeIO >>= stateToString) >>= liftString
 
 envToObject :: (MonadRef m, IORef ~ Ref m) => Environment -> m (Object IORef)
-envToObject = pureListToObject . fmap Pair
+envToObject = pureListToObject . map Pair
 
 toKVPair :: MonadMutableRef m => Object (Ref m) -> m (Maybe (String, Object (Ref m)))
 toKVPair = \case
