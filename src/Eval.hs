@@ -51,23 +51,23 @@ builtins = (globe <~) $ traverse
     )
   , ("vmark", Pair <$> use vmark)
   ] <> fmap (\p -> (p, "lit" ~~ "prim" ~| p))
-    [ "id"
-    , "join"
-    , "car"
-    , "cdr"
-    , "type"
-    , "xar"
-    , "xdr"
-    , "sym"
-    , "nom"
-    , "wrb"
-    , "rdb"
-    , "ops"
-    , "cls"
-    , "stat"
-    , "coin"
-    , "err"
-    ]
+  [ "id"
+  , "join"
+  , "car"
+  , "cdr"
+  , "type"
+  , "xar"
+  , "xdr"
+  , "sym"
+  , "nom"
+  , "wrb"
+  , "rdb"
+  , "ops"
+  , "cls"
+  , "stat"
+  , "coin"
+  , "err"
+  ] <> fmap (second (fmap Pair . newRef . OptimizedFunction)) predefinedMacros
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -233,6 +233,18 @@ nativeFns = fmap (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       _ -> throwError "time requires exactly one argument"
   ]
 
+predefinedMacros :: [(String, OptimizedFunction IORef)]
+predefinedMacros =
+  [ ("set",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . formSet
+  , ("def",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [] -> throwError "'def' received no arguments"
+      n:rest -> fn rest >>= formSet . (n:) . pure
+  , ("mac",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ fmap Just . \case
+      [n, p, e] -> formSet =<<
+        ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
+      args -> wrongParamCount "mac" args 3
+  ]
+
 nativeMacros :: [(String, OptimizedFunction IORef)]
 nativeMacros =
   [ ("or",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
@@ -306,7 +318,8 @@ nth = \case
   _ -> const typecheckFailure
 
 withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
-withNativeFns startState = foldM oneFn startState (nativeFns <> nativeMacros) where
+withNativeFns startState = foldM oneFn startState fns where
+  fns = predefinedMacros <> nativeFns <> nativeMacros
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing ->
@@ -508,10 +521,6 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
       listToObject [pure f, pure c] >>= evreturn
-  , FormN "set" formSet
-  , FormN "def" \case
-      [] -> throwError "'def' received no arguments"
-      n:rest -> fn rest >>= formSet . (n:) . pure
   -- @incomplete: implement this in a way that cannot clash with user symbols
   , Form1 "~backquote" let
       go = \case
@@ -523,10 +532,6 @@ specialForms = (\f -> (formName f, f)) <$>
             Right prefix -> append prefix cdr
         x -> pure $ Left x
       in fmap (either id id) . go
-
-  , Form3 "mac" \n p e -> formSet =<<
-      ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
-
   ]
 
 formWhere :: Bool -> Object IORef -> EvalMonad (Object IORef)
