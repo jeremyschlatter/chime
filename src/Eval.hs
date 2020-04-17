@@ -79,17 +79,7 @@ builtins = (globe <~) $ traverse
 
 nativeFns :: [(String, OptimizedFunction IORef)]
 nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
-  [ ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [] -> doDebug <%= not >>= toObject
-      _ -> tooManyArguments
-  , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [x] -> do
-        start <- liftIO getCurrentTime
-        result <- evaluate x
-        end <- liftIO getCurrentTime
-        liftIO $ putStrLn $ show $ diffUTCTime end start
-        pure result
-      _ -> throwError "time requires exactly one argument"
+  [
   ]
 
 cadr :: Object IORef -> EvalMonad (Object IORef)
@@ -188,7 +178,8 @@ withNativeFns startState = foldM oneFn startState fns >>= flip (foldM nativeFn) 
   fns = nativeFns
   nativeFn :: EvalState -> (String, NativeOperator) -> IO EvalState
   nativeFn s (nm, _) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
-    Nothing -> interpreterBug $ nm <> " was not present in the global state"
+    Nothing -> if nm `elem` ["time", "debug"] then pure s else
+      interpreterBug $ nm <> " was not present in the global state"
     Just (_, x) -> snd <$> flip runEval s do
       "do" ~~ ("native" ~~ nm ~| x) ~| ("set" ~~ nm ~| ("lit" ~~ "native" ~| nm)) >>= evaluate
   oneFn :: EvalState -> (String, OptimizedFunction IORef) -> IO EvalState
@@ -605,12 +596,21 @@ natives =
   , ("number",) $ fn1 $ \n -> (runMaybeT (number n)) <&> \case
       Just _ -> Sym 't' ""
       _ -> Symbol Nil
-
   , ("no",) $ fn1 $ pure . Symbol . symbol . \case
       Symbol Nil -> "t"
       _ -> "nil"
+
+  , ("debug",) $ fn0 $ doDebug <%= not >>= toObject
+  , ("time",) $ fn1 \x -> do
+      start <- liftIO getCurrentTime
+      result <- evaluate x
+      end <- liftIO getCurrentTime
+      liftIO $ putStrLn $ show $ diffUTCTime end start
+      pure result
+
   ] where
       fnN = (traverse evaluate >=>)
+      fn0 f = fnN \case [] -> f; args -> wrongNumArguments 0 args
       fn1 f = fnN \case [a] -> f a; args -> wrongNumArguments 1 args
       fn2 f = fnN \case [a, b] -> f a b; args -> wrongNumArguments 2 args
       fallbackClo nm args =
