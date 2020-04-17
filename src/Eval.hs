@@ -567,8 +567,15 @@ specialForms = (\f -> (formName f, f)) <$>
         _ -> repr v >>= \rep -> throwError $ "dyn requires a variable as its first argument. "
           <> rep <> " is not a variable."
   , Form2 "after" \x y -> do
+      -- save stacks
+      (s1, s2, s3) <- (,,) <$> use scope <*> use dyns <*> use stack
+      -- evaluate x
       x' <- catchError (Right <$> evreturn x) (pure . Left)
+      -- restore stacks
+      (scope .= s1) *> (dyns .= s2) *> (stack .= s3)
+      -- evaluate y
       _ <- evaluate y
+      -- rethrow any error
       either E.throwError pure x'
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
