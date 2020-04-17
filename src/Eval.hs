@@ -77,11 +77,6 @@ builtins = (globe <~) $ traverse
       [] -> interpreterBug "called sym' with an empty string"
       x:xs -> MkSymbol (x :| xs)
 
-nativeFns :: [(String, OptimizedFunction IORef)]
-nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
-  [
-  ]
-
 cadr :: Object IORef -> EvalMonad (Object IORef)
 cadr = cdr' >=> car'
 
@@ -174,25 +169,12 @@ nth = \case
   _ -> const typecheckFailure
 
 withNativeFns :: EvalState -> IO EvalState
-withNativeFns startState = foldM oneFn startState fns >>= flip (foldM nativeFn) natives where
-  fns = nativeFns
-  nativeFn :: EvalState -> (String, NativeOperator) -> IO EvalState
+withNativeFns = flip (foldM nativeFn) natives where
   nativeFn s (nm, _) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing -> if nm `elem` ["time", "debug"] then pure s else
       interpreterBug $ nm <> " was not present in the global state"
     Just (_, x) -> snd <$> flip runEval s do
       "do" ~~ ("native" ~~ nm ~| x) ~| ("set" ~~ nm ~| ("lit" ~~ "native" ~| nm)) >>= evaluate
-  oneFn :: EvalState -> (String, OptimizedFunction IORef) -> IO EvalState
-  oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
-    Nothing ->
-      if nm `elem` ["time", "debug", "ifwhere"]
-      then (map Pair . newRef . OptimizedFunction) f >>= \x ->
-        (mkPair (sym nm) x <&> \p -> (s & globe %~ (p:)))
-      else interpreterBug $ nm <> " was not present in the global state"
-    Just (_, p) -> case p of
-      Pair ref -> readPair "native fns" ref >>= \n ->
-        writeRef ref (OptimizedFunction (f {fnFallback = n})) $> s
-      _ -> interpreterBug $ "non-pair in global binding for " <> nm
   sym = \case
     [] -> interpreterBug "unexpected empty string"
     n:ame -> Sym n ame
@@ -205,30 +187,6 @@ numSub a b = (realPart a - realPart b) :+ (imagPart a - imagPart b)
 
 numMul :: Number -> Number -> Number
 numMul (a :+ b) (c :+ d) = (a * c - b * d) :+ (a * d + b * c)
-
-numComp
-  :: (Rational -> Rational -> Bool) -> (Rational -> Rational -> Bool) -> OptimizedFunction IORef
-numComp r i = numFnN go where
-  go = \case
-    [] -> True
-    [_] -> True
-    (ar :+ ai) : b@(br :+ bi) : cs -> r ar br && i ai bi && go (b:cs)
-
--- @incomplete: fallback to the definition in bel.bel if inputs are not numbers
-numFnN
-  :: (ToObject EvalMonad IORef r) => ([Number] -> r) -> OptimizedFunction IORef
-numFnN f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $
-  traverse (runMaybeT . number) >=> maybe
-    (pure Nothing)
-    (map Just . toObject . f)
-    . sequence
-
-numFn1 :: (ToObject EvalMonad IORef r) => (Number -> r) -> OptimizedFunction IORef
-numFn1 f = flip MkOptimizedFunction (Symbol Nil, Symbol Nil) \case
-  [x] -> runMaybeT (number x) >>= maybe
-    (pure Nothing)
-    (map Just . toObject . f)
-  _ -> Just <$> tooFewArguments
 
 throwError :: String -> EvalMonad (Object IORef)
 throwError s = listToObject [
@@ -303,7 +261,6 @@ data Operator
   | Closure Closure
   | Virfn Closure
   | TheContinuation (Object IORef -> EvalMonad (Object IORef))
-  | TheOptimizedFunction (OptimizedFunction IORef)
   | TheNativeOperator NativeOperator
   | TheNumber Number
 
@@ -497,23 +454,23 @@ natives =
       [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
       args -> wrongNumArguments 2 args
 
-  , numFnN' "+" $ foldr numAdd (0 :+ 0)
-  , numFnN' "-" \case
+  , numFnN "+" $ foldr numAdd (0 :+ 0)
+  , numFnN "-" \case
       [] -> (0 :+ 0)
       [a] -> (0 :+ 0) `numSub` a
       a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
-  , numFnN' "*" $ foldr numMul (1 :+ 0)
-  , numFn1' "recip" \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
-  , numFn1' "odd" \case
+  , numFnN "*" $ foldr numMul (1 :+ 0)
+  , numFn1 "recip" \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
+  , numFn1 "odd" \case
       (n :+ 0) -> denominator n == 1 && odd (numerator n)
       _ -> False
-  , numFn1' "even" \case
+  , numFn1 "even" \case
       (n :+ 0) -> denominator n == 1 && even (numerator n)
       _ -> False
-  , numComp' ">" (>) (>=)
-  , numComp' ">=" (>=) (>=)
-  , numComp' "<" (<) (<=)
-  , numComp' "<=" (<=) (<=)
+  , numComp ">" (>) (>=)
+  , numComp ">=" (>=) (>=)
+  , numComp "<" (<) (<=)
+  , numComp "<=" (<=) (<=)
   , ("=",) $ fnN let
       go :: Object IORef -> [Object IORef] -> EvalMonad Bool
       go a = \case
@@ -615,21 +572,21 @@ natives =
       fn2 f = fnN \case [a, b] -> f a b; args -> wrongNumArguments 2 args
       fallbackClo nm args =
         ("spec" ~| nm) ~~ listToObject @EvalMonad (quote <$> args) >>= evaluate
-      numFn1' :: (ToObject EvalMonad IORef r) =>
+      numFn1 :: (ToObject EvalMonad IORef r) =>
         String -> (Number -> r) -> (String, NativeOperator)
-      numFn1' nm f = (nm,) $ fn1 \arg ->
+      numFn1 nm f = (nm,) $ fn1 \arg ->
         runMaybeT (number arg) >>= maybe (fallbackClo nm [arg]) (toObject . f)
-      numFnN' :: (ToObject EvalMonad IORef r) =>
+      numFnN :: (ToObject EvalMonad IORef r) =>
         String -> ([Number] -> r) -> (String, NativeOperator)
-      numFnN' nm f = (nm,) $ fnN \args ->
+      numFnN nm f = (nm,) $ fnN \args ->
         traverse (runMaybeT . number) args >>=
           maybe (fallbackClo nm args) (toObject . f) . sequence
-      numComp'
+      numComp
         :: String
         -> (Rational -> Rational -> Bool)
         -> (Rational -> Rational -> Bool)
         -> (String, NativeOperator)
-      numComp' nm r i = numFnN' nm go where
+      numComp nm r i = numFnN nm go where
         go = \case
           [] -> True
           [_] -> True
@@ -780,7 +737,6 @@ operator = \case
   x -> evaluate x >>= \case
     Pair ref -> readRef ref >>= \case
       Continuation c -> pure $ Just $ TheContinuation c
-      OptimizedFunction f -> pure $ Just $ TheOptimizedFunction f
       Number n -> pure $ Just $ TheNumber n
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
@@ -915,11 +871,6 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
               [x] -> evaluate x >>= c
               _ -> throwError "tried to call a continuation with too many arguments"
             TheNativeOperator f -> f args
-            TheOptimizedFunction f -> fnBody f args >>= \case
-              Just x -> pure x
-              Nothing -> (map Pair $ newRef $ MkPair $ fnFallback f) >>= operator >>= \case
-                Nothing -> interpreterBug "sorry! the implementor of chime messed up here."
-                Just x -> operate x
             Primitive p -> case p of
               Prim0 nm f -> case args of
                 [] -> f

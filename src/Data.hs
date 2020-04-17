@@ -27,7 +27,6 @@ data Pair r
   = MkPair (Object r, Object r)
   | Number Number
   | Continuation (Object IORef -> EvalMonad (Object IORef))
-  | OptimizedFunction (OptimizedFunction r)
 
 data Direction = In | Out deriving Eq
 
@@ -56,11 +55,6 @@ data Stream where
     , streamBuf :: Word8
     , streamPlace :: Int
     } -> Stream
-
-data OptimizedFunction r = MkOptimizedFunction
-  { fnBody :: [Object IORef] -> EvalMonad (Maybe (Object IORef))
-  , fnFallback :: (Object r, Object r)
-  }
 
 data Object r
   = Symbol Symbol
@@ -154,8 +148,6 @@ readPair _why x = readRef x >>= \case
   -- Number n -> interpreterBug $ "tried to collapse number " <> show n <> " " <> _why
   Number n -> collapseNumber n >>= \p -> (writeRef x (MkPair p)) $> p
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
-  -- Collapse the optimized representation! :(
-  OptimizedFunction f -> writeRef x (MkPair (fnFallback f)) $> fnFallback f
 
 instance EqRef r => Repr r (Either (r (Pair r)) Symbol) where
   repr = either repr repr
@@ -329,8 +321,6 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
             readRef ref' >>= \case
               Number n -> pure $ ms <> showNumber n
               Continuation _ -> pure $ ms <> "<continuation>"
-              OptimizedFunction f -> (newRef $ MkPair $ fnFallback f) >>=
-                (map (ms <>)) . reprShare
               MkPair (car, cdr) -> reprShare car >>= \car' ->
                 (\s -> (ms <> pre <> s <> post)) . (car' <>)
                   <$> mcase2 (number, id) cdr \case
