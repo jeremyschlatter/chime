@@ -9,8 +9,11 @@
 (mac native (name code)
   `(unless (isa!native ,code) (set natives (put ',name ,code natives))))
 
+(def spec (f)
+  (cdr (get (if (isa!native f) caddr.f f) natives)))
+
 (vir native (f args)
-  `(,(cdr (get (caddr f) natives)) ,@args))
+  `(,(spec f) ,@args))
 
 (native set
   (macro args

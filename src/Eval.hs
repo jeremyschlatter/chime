@@ -79,41 +79,7 @@ builtins = (globe <~) $ traverse
 
 nativeFns :: [(String, OptimizedFunction IORef)]
 nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
-  [ ("+",) $ numFnN $ foldr numAdd (0 :+ 0)
-  , ("-",) $ numFnN \case
-      [] -> (0 :+ 0)
-      [a] -> (0 :+ 0) `numSub` a
-      a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
-  , ("*",) $ numFnN $ foldr numMul (1 :+ 0)
-  , ("recip",) $ numFn1 \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
-  , ("odd",) $ numFn1 \case
-      (n :+ 0) -> denominator n == 1 && odd (numerator n)
-      _ -> False
-  , ("even",) $ numFn1 \case
-      (n :+ 0) -> denominator n == 1 && even (numerator n)
-      _ -> False
-  -- @incomplete: compare other things, too
-  , (">",) $ numComp (>) (>=)
-  , (">=",) $ numComp (>=) (>=)
-  , ("<",) $ numComp (<) (<=)
-  , ("<=",) $ numComp (<=) (<=)
-  , ("parsenum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      symT = \case
-        (Sym 't' "") -> pure ()
-        _ -> empty
-      in \case
-        [] -> Just <$> tooFewArguments
-        [_] -> Just <$> tooFewArguments
-        [cs, base] -> bisequence
-          (unCharacter <$$$> string cs, runMaybeT (properListOf symT base)) >>= \case
-            (Just s, Just (length -> n)) | n == 10 ->
-              map Just $ evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
-                fromRight (Symbol Nil)
-            -- @performance: handle bases other than 10 natively
-            _ -> pure Nothing
-        _:_:_:_ -> Just <$> tooManyArguments
-
-  , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
+  [ ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> doDebug <%= not >>= toObject
       _ -> tooManyArguments
   , ("time",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
@@ -540,6 +506,23 @@ natives =
       [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
       args -> wrongNumArguments 2 args
 
+  , numFnN' "+" $ foldr numAdd (0 :+ 0)
+  , numFnN' "-" \case
+      [] -> (0 :+ 0)
+      [a] -> (0 :+ 0) `numSub` a
+      a:rest -> numSub a $ foldr numAdd (0 :+ 0) rest
+  , numFnN' "*" $ foldr numMul (1 :+ 0)
+  , numFn1' "recip" \(x :+ y) -> let d = x*x + y*y in (x/d) :+ (-y/d)
+  , numFn1' "odd" \case
+      (n :+ 0) -> denominator n == 1 && odd (numerator n)
+      _ -> False
+  , numFn1' "even" \case
+      (n :+ 0) -> denominator n == 1 && even (numerator n)
+      _ -> False
+  , numComp' ">" (>) (>=)
+  , numComp' ">=" (>=) (>=)
+  , numComp' "<" (<) (<=)
+  , numComp' "<=" (<=) (<=)
   , ("=",) $ fnN let
       go :: Object IORef -> [Object IORef] -> EvalMonad Bool
       go a = \case
@@ -605,6 +588,17 @@ natives =
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
+  , ("parsenum",) $ fn2 let
+      symT = \case
+        (Sym 't' "") -> pure ()
+        _ -> empty
+      in \cs base -> bisequence
+          (unCharacter <$$$> string cs, runMaybeT (properListOf symT base)) >>= \case
+            (Just s, Just (length -> n)) | n == 10 ->
+              evalStateT (M.runParserT (Parse.number <* M.eof) "" s) Map.empty <&>
+                fromRight (Symbol Nil)
+            -- @performance: handle bases other than 10 natively
+            _ -> fallbackClo "parsenum" [cs, base]
   , ("floor",) $ fn1 $ runMaybeT . number >=> \case
       Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
       _ -> typecheckFailure
@@ -619,6 +613,27 @@ natives =
       fnN = (traverse evaluate >=>)
       fn1 f = fnN \case [a] -> f a; args -> wrongNumArguments 1 args
       fn2 f = fnN \case [a, b] -> f a b; args -> wrongNumArguments 2 args
+      fallbackClo nm args =
+        ("spec" ~| nm) ~~ listToObject @EvalMonad (quote <$> args) >>= evaluate
+      numFn1' :: (ToObject EvalMonad IORef r) =>
+        String -> (Number -> r) -> (String, NativeOperator)
+      numFn1' nm f = (nm,) $ fn1 \arg ->
+        runMaybeT (number arg) >>= maybe (fallbackClo nm [arg]) (toObject . f)
+      numFnN' :: (ToObject EvalMonad IORef r) =>
+        String -> ([Number] -> r) -> (String, NativeOperator)
+      numFnN' nm f = (nm,) $ fnN \args ->
+        traverse (runMaybeT . number) args >>=
+          maybe (fallbackClo nm args) (toObject . f) . sequence
+      numComp'
+        :: String
+        -> (Rational -> Rational -> Bool)
+        -> (Rational -> Rational -> Bool)
+        -> (String, NativeOperator)
+      numComp' nm r i = numFnN' nm go where
+        go = \case
+          [] -> True
+          [_] -> True
+          (ar :+ ai) : b@(br :+ bi) : cs -> r ar br && i ai bi && go (b:cs)
 
 primitives :: [(String, Primitive)]
 primitives = (\p -> (primName p, p)) <$>
