@@ -11,3 +11,19 @@
 
 (vir native (f args)
   `(,(cdr (get (caddr f) natives)) ,@args))
+
+(native set
+  (macro args
+    (cons 'do
+          (map (fn ((p (o e t)))
+                 (letu v
+                   `(atomic (let ,v ,e
+                              (let (cell loc) (where ,p t)
+                                ((case loc a xar d xdr) cell ,v))))))
+               (hug args)))))
+
+(mac def (n . rest)
+  `(set ,n (fn ,@rest)))
+
+(mac mac (n . rest)
+  `(set ,n (macro ,@rest)))

@@ -12,8 +12,8 @@ import Control.Monad.Trans.State
 import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.FileEmbed
-import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import qualified Data.Map.Strict as Map
+import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -66,8 +66,7 @@ builtins = (globe <~) $ traverse
   , "stat"
   , "coin"
   , "err"
-  ] <> map (second (map Pair . newRef . OptimizedFunction)) (predefinedMacros <> predefinedFns)
-    <> map (\(nm, _) -> (nm, "lit" ~~ "native" ~| nm)) natives
+  ] <> map (\(nm, _) -> (nm, "lit" ~~ "native" ~| nm)) natives
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -98,75 +97,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
   , (">=",) $ numComp (>=) (>=)
   , ("<",) $ numComp (<) (<=)
   , ("<=",) $ numComp (<=) (<=)
-  , ("=",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) let
-      go :: Object IORef -> [Object IORef] -> EvalMonad Bool
-      go a = \case
-        [] -> pure $ True
-        x:xs -> eq a x >>= bool (pure False) (go a xs)
-      eq :: Object IORef -> Object IORef -> EvalMonad Bool
-      eq x y = bisequence (runMaybeT $ number x, runMaybeT $ number y) >>= \case
-        (Just n, Just m) -> pure $ n  == m
-        (Nothing, Nothing) -> case (x, y) of
-          (Symbol a, Symbol b) -> pure $ a == b
-          (Character a, Character b) -> pure $ a == b
-          (Stream a, Stream b) -> pure $ a == b
-          (Pair a, Pair b) -> bisequence (readPair "=" a, readPair "=" b) >>=
-            \((aa, ad), (ba, bd)) -> eq aa ba >>= bool (pure False) (eq ad bd)
-          _ -> pure False
-        _ -> pure False
-      in map (Just . bool (Symbol Nil) (Sym 't' "")) . \case
-        a:b:cs -> go a (b:cs)
-        _ -> pure True
-  , ("cons",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      go = \case
-        [] -> pure $ Symbol Nil
-        [x] -> pure x
-        x:xs -> x ~~ go xs
-      in map Just . go
-  , ("append",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
-      go accum = \case
-        [] -> listToObject (pure <$> accum)
-        [x] -> case accum of
-          [] -> pure x
-          xs -> properList x >>= \case
-            Nothing -> (pure @EvalMonad <$> xs) ~~ x
-            Just x' -> listToObject (pure <$> (xs <> x'))
-        x : xs -> properList x >>= \case
-          Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
-          Just l -> go (accum <> l) xs
-      in map Just . go []
-  , ("nth",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [] -> tooFewArguments
-      [_] -> tooFewArguments
-      _:_:_:_ -> tooManyArguments
-      [mn, mxs] -> runMaybeT (number mn) >>= \case
-        Just n -> nth n mxs
-        Nothing -> typecheckFailure
-  , ("bitc",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      nextByte :: Stream -> EvalMonad (Either (Object IORef) Word8)
-      nextByte (MkStream h _ _ idx) =
-        if idx == 7
-        then liftIO (B.unpack <$> hGet h 1) <&> \case
-          [] -> Left $ Sym 'e' "of"
-          [x] -> Right x
-          _ -> interpreterBug
-            "Haskell's Data.ByteString.hGet returned more bytes than it promised"
-        else Left <$> throwError "bitc called on byte-unaligned stream"
-      readStream = \case
-        Stream s -> readRef s >>= go B.empty
-        _ -> typecheckFailure
-      go bs s = nextByte s >>= either pure (go' s . flip B.cons bs)
-      go' :: Stream -> B.ByteString -> EvalMonad (Object IORef)
-      go' s bs =
-        either
-          (const $ go bs s)
-          (pure . Character . MkCharacter . T.head)
-          (decodeUtf8' bs)
-      in map Just . \case
-        [] -> evaluate (Sym 'i' "ns") >>= readStream
-        [x] -> readStream x
-        _ -> tooManyArguments
   , ("parsenum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       symT = \case
         (Sym 't' "") -> pure ()
@@ -183,18 +113,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
             _ -> pure Nothing
         _:_:_:_ -> Just <$> tooManyArguments
 
-  , ("floor",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [] -> tooFewArguments
-      _:_:_ -> tooManyArguments
-      [x] -> runMaybeT (number x) >>= \case
-        Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
-        _ -> typecheckFailure
-  , ("number",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [n] -> (runMaybeT (number n)) <&> \case
-        Just _ -> Sym 't' ""
-        _ -> Symbol Nil
-      _ -> throwError "wrong number of arguments"
-
   , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
       [] -> doDebug <%= not >>= toObject
       _ -> tooManyArguments
@@ -206,47 +124,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         liftIO $ putStrLn $ show $ diffUTCTime end start
         pure result
       _ -> throwError "time requires exactly one argument"
-  ]
-
-predefinedMacros :: [(String, OptimizedFunction IORef)]
-predefinedMacros =
-  [ ("set",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . formSet
-  , ("def",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [] -> throwError "'def' received no arguments"
-      n:rest -> fn rest >>= formSet . (n:) . pure
-  , ("mac",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [n, p, e] -> formSet =<<
-        ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
-      args -> wrongParamCount' "mac" args 3
-  , ("bquote",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [e] -> bqex e 0 >>= \case
-        (sub, True) -> evreturn sub
-        _ -> pure e
-      args -> wrongParamCount' "bquote" args 1
-  , ("comma",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
-      throwError $ "comma outside backquote"
-  , ("comma-at",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
-      throwError $ "comma-at outside backquote"
-  , ("splice",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \_ ->
-      throwError $ "comma-at outside list"
-  ]
-
-predefinedFns :: [(String, OptimizedFunction IORef)]
-predefinedFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
-  [ ("spa",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [x] -> case x of
-        Symbol Nil -> pure x
-        Pair _ -> pure x
-        _ -> throwError "splice-atom"
-      args -> wrongParamCount' "spa" args 1
-  , ("spd",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [x] -> case x of
-        Symbol Nil -> throwError "splice-empty-cdr"
-        Pair r -> readPair "spd" r >>= (. snd) \case
-          Symbol Nil -> pure x
-          _ -> throwError "splice-multiple-cdrs"
-        _ -> throwError "splice-atom"
-      args -> wrongParamCount' "spd" args 1
   ]
 
 cadr :: Object IORef -> EvalMonad (Object IORef)
@@ -293,32 +170,6 @@ bqexpair e n = do
       True -> "append" ~~ ("spa" ~| cadr a) ~| d
       False -> "cons" ~~ a ~| d
   else quote e <&> (, False)
-
-nativeMacros :: [(String, OptimizedFunction IORef)]
-nativeMacros =
-  [ ("or",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      go = \case
-        [] -> pure $ Symbol Nil
-        x:xs -> evaluate x >>= \case
-          Symbol Nil -> go xs
-          x' -> pure x'
-      in map Just . go
-  , ("and",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
-      go = \case
-        [] -> pure $ Sym 't' ""
-        [x] -> evaluate x
-        x:xs -> evaluate x >>= \case
-          Symbol Nil -> pure $ Symbol Nil
-          _ -> go xs
-      in map Just . go
-  , ("fn",) $ MkOptimizedFunction (map Just . fn) (Symbol Nil, Symbol Nil)
-
-  , ("ifwhere",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [] -> tooFewArguments
-      [_] -> tooFewArguments
-      [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
-      _ -> tooManyArguments
-  ]
 
 formSet :: [Object IORef] -> EvalMonad (Object IORef)
 formSet = go $ Symbol Nil where
@@ -368,7 +219,7 @@ nth = \case
 
 withNativeFns :: EvalState -> IO EvalState
 withNativeFns startState = foldM oneFn startState fns >>= flip (foldM nativeFn) natives where
-  fns = predefinedMacros <> predefinedFns <> nativeFns <> nativeMacros
+  fns = nativeFns
   nativeFn :: EvalState -> (String, NativeOperator) -> IO EvalState
   nativeFn s (nm, _) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing -> interpreterBug $ nm <> " was not present in the global state"
@@ -639,7 +490,7 @@ type NativeOperator = [Object IORef] -> EvalMonad (Object IORef)
 
 native :: [Object IORef] -> Maybe NativeOperator
 native = \case
-  [Sym 'l' "it", Sym 'n' "ative", Symbol op] -> lookup (toList $ unSymbol op) natives
+  [Sym 'l' "it", Sym 'n' "ative", Symbol op] -> Map.lookup op nativesLookup
   _ -> Nothing
 
 symbol :: String -> Symbol
@@ -648,14 +499,137 @@ symbol = \case
     "there is an empty symbol in the interpreter code where there shouldn't be"
   s:ss -> MkSymbol $ s:|ss
 
+nativesLookup :: Map.Map Symbol NativeOperator
+nativesLookup = Map.fromList $ first symbol <$> natives
+
 natives :: [(String, NativeOperator)]
 natives =
-  [ ("no",) $ fn1 $ pure . Symbol . symbol . \case
+  [ ("set",) formSet
+  , ("def",) \case
+      [] -> throwError "'def' received no arguments"
+      n:rest -> fn rest >>= formSet . (n:) . pure
+  , ("mac",) \case
+      [n, p, e] -> formSet =<<
+        ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
+      args -> wrongNumArguments 3 args
+  , ("bquote",) \case
+      [e] -> bqex e 0 >>= \case
+        (sub, True) -> evreturn sub
+        _ -> pure e
+      args -> wrongNumArguments 1 args
+  , ("comma",) \_ -> throwError "comma outside backquote"
+  , ("comma-at",) \_ -> throwError "comma-at outside backquote"
+  , ("splice",) \_ -> throwError "comma-at outside list"
+  , ("spa",) $ fn1 \case
+      x@(Symbol Nil) -> pure x
+      x@(Pair _) -> pure x
+      _ -> throwError "splice-atom"
+  , ("spd",) $ fn1 \case
+      Symbol Nil -> throwError "splice-empty-cdr"
+      x@(Pair r) -> readPair "spd" r >>= (. snd) \case
+        Symbol Nil -> pure x
+        _ -> throwError "splice-multiple-cdrs"
+      _ -> throwError "splice-atom"
+
+  , ("or",) let
+      go = \case
+        [] -> pure $ Symbol Nil
+        x:xs -> evaluate x >>= \case
+          Symbol Nil -> go xs
+          x' -> pure x'
+      in go
+  , ("and",) let
+      go = \case
+        [] -> pure $ Sym 't' ""
+        [x] -> evaluate x
+        x:xs -> evaluate x >>= \case
+          Symbol Nil -> pure $ Symbol Nil
+          _ -> go xs
+      in go
+  , ("fn",) fn
+  , ("ifwhere",) \case
+      [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
+      args -> wrongNumArguments 2 args
+
+  , ("=",) $ fnN let
+      go :: Object IORef -> [Object IORef] -> EvalMonad Bool
+      go a = \case
+        [] -> pure $ True
+        x:xs -> eq a x >>= bool (pure False) (go a xs)
+      eq :: Object IORef -> Object IORef -> EvalMonad Bool
+      eq x y = bisequence (runMaybeT $ number x, runMaybeT $ number y) >>= \case
+        (Just n, Just m) -> pure $ n  == m
+        (Nothing, Nothing) -> case (x, y) of
+          (Symbol a, Symbol b) -> pure $ a == b
+          (Character a, Character b) -> pure $ a == b
+          (Stream a, Stream b) -> pure $ a == b
+          (Pair a, Pair b) -> bisequence (readPair "=" a, readPair "=" b) >>=
+            \((aa, ad), (ba, bd)) -> eq aa ba >>= bool (pure False) (eq ad bd)
+          _ -> pure False
+        _ -> pure False
+      in map (bool (Symbol Nil) (Sym 't' "")) . \case
+        a:b:cs -> go a (b:cs)
+        _ -> pure True
+  , ("cons",) $ fnN let
+      go = \case
+        [] -> pure $ Symbol Nil
+        [x] -> pure x
+        x:xs -> x ~~ go xs
+      in go
+  , ("append",) $ fnN let
+      go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
+      go accum = \case
+        [] -> listToObject (pure <$> accum)
+        [x] -> case accum of
+          [] -> pure x
+          xs -> properList x >>= \case
+            Nothing -> (pure @EvalMonad <$> xs) ~~ x
+            Just x' -> listToObject (pure <$> (xs <> x'))
+        x : xs -> properList x >>= \case
+          Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
+          Just l -> go (accum <> l) xs
+      in go []
+  , ("nth",) $ fn2 \mn mxs -> runMaybeT (number mn) >>= \case
+      Just n -> nth n mxs
+      Nothing -> typecheckFailure
+  , ("bitc",) $ fnN let
+      nextByte :: Stream -> EvalMonad (Either (Object IORef) Word8)
+      nextByte (MkStream h _ _ idx) =
+        if idx == 7
+        then liftIO (B.unpack <$> hGet h 1) <&> \case
+          [] -> Left $ Sym 'e' "of"
+          [x] -> Right x
+          _ -> interpreterBug
+            "Haskell's Data.ByteString.hGet returned more bytes than it promised"
+        else Left <$> throwError "bitc called on byte-unaligned stream"
+      readStream = \case
+        Stream s -> readRef s >>= go B.empty
+        _ -> typecheckFailure
+      go bs s = nextByte s >>= either pure (go' s . flip B.cons bs)
+      go' :: Stream -> B.ByteString -> EvalMonad (Object IORef)
+      go' s bs =
+        either
+          (const $ go bs s)
+          (pure . Character . MkCharacter . T.head)
+          (decodeUtf8' bs)
+      in \case
+        [] -> evaluate (Sym 'i' "ns") >>= readStream
+        [x] -> readStream x
+        _ -> tooManyArguments
+  , ("floor",) $ fn1 $ runMaybeT . number >=> \case
+      Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
+      _ -> typecheckFailure
+  , ("number",) $ fn1 $ \n -> (runMaybeT (number n)) <&> \case
+      Just _ -> Sym 't' ""
+      _ -> Symbol Nil
+
+  , ("no",) $ fn1 $ pure . Symbol . symbol . \case
       Symbol Nil -> "t"
       _ -> "nil"
   ] where
-      doFn = (traverse evaluate >=>)
-      fn1 f = doFn \case [x] -> f x; args -> wrongNumArguments 1 args
+      fnN = (traverse evaluate >=>)
+      fn1 f = fnN \case [a] -> f a; args -> wrongNumArguments 1 args
+      fn2 f = fnN \case [a, b] -> f a b; args -> wrongNumArguments 2 args
 
 primitives :: [(String, Primitive)]
 primitives = (\p -> (primName p, p)) <$>

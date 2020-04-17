@@ -19,7 +19,7 @@ import Common
 
 type Number = Complex Rational
 
-newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving Eq
+newtype Symbol = MkSymbol { unSymbol :: NonEmpty Char } deriving (Eq, Ord)
 
 newtype Character = MkCharacter { unCharacter :: Char } deriving Eq
 
