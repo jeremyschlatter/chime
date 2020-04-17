@@ -67,6 +67,7 @@ builtins = (globe <~) $ traverse
   , "coin"
   , "err"
   ] <> map (second (map Pair . newRef . OptimizedFunction)) (predefinedMacros <> predefinedFns)
+    <> map (\(nm, _) -> (nm, "lit" ~~ "native" ~| nm)) natives
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -166,7 +167,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
         [] -> evaluate (Sym 'i' "ns") >>= readStream
         [x] -> readStream x
         _ -> tooManyArguments
-
   , ("parsenum",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ let
       symT = \case
         (Sym 't' "") -> pure ()
@@ -193,11 +193,6 @@ nativeFns = map (second \f -> f { fnBody = traverse evaluate >=> fnBody f })
       [n] -> (runMaybeT (number n)) <&> \case
         Just _ -> Sym 't' ""
         _ -> Symbol Nil
-      _ -> throwError "wrong number of arguments"
-  , ("no",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
-      [x] -> case x of
-        (Symbol Nil) -> pure $ Sym 't' ""
-        _ -> pure $ Symbol Nil
       _ -> throwError "wrong number of arguments"
 
   , ("debug",) $ flip MkOptimizedFunction (Symbol Nil, Symbol Nil) $ map Just . \case
@@ -371,10 +366,15 @@ nth = \case
     in go n'
   _ -> const typecheckFailure
 
-withNativeFns :: forall m. (MonadMutableRef m, IORef ~ Ref m) => EvalState -> m EvalState
-withNativeFns startState = foldM oneFn startState fns where
+withNativeFns :: EvalState -> IO EvalState
+withNativeFns startState = foldM oneFn startState fns >>= flip (foldM nativeFn) natives where
   fns = predefinedMacros <> predefinedFns <> nativeFns <> nativeMacros
-  oneFn :: EvalState -> (String, OptimizedFunction IORef) -> m EvalState
+  nativeFn :: EvalState -> (String, NativeOperator) -> IO EvalState
+  nativeFn s (nm, _) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
+    Nothing -> interpreterBug $ nm <> " was not present in the global state"
+    Just (_, x) -> snd <$> flip runEval s do
+      "do" ~~ ("native" ~~ nm ~| x) ~| ("set" ~~ nm ~| ("lit" ~~ "native" ~| nm)) >>= evaluate
+  oneFn :: EvalState -> (String, OptimizedFunction IORef) -> IO EvalState
   oneFn s (nm, f) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
     Nothing ->
       if nm `elem` ["time", "debug", "ifwhere"]
@@ -496,6 +496,7 @@ data Operator
   | Virfn Closure
   | TheContinuation (Object IORef -> EvalMonad (Object IORef))
   | TheOptimizedFunction (OptimizedFunction IORef)
+  | TheNativeOperator NativeOperator
   | TheNumber Number
 
 data Closure = MkClosure Environment (Object IORef) (Object IORef)
@@ -634,11 +635,27 @@ primitive = \case
   [Sym 'l' "it", Sym 'p' "rim", Symbol x] -> lookup (toList $ unSymbol x) primitives
   _ -> Nothing
 
+type NativeOperator = [Object IORef] -> EvalMonad (Object IORef)
+
+native :: [Object IORef] -> Maybe NativeOperator
+native = \case
+  [Sym 'l' "it", Sym 'n' "ative", Symbol op] -> lookup (toList $ unSymbol op) natives
+  _ -> Nothing
+
 symbol :: String -> Symbol
 symbol = \case
   [] -> interpreterBug
     "there is an empty symbol in the interpreter code where there shouldn't be"
   s:ss -> MkSymbol $ s:|ss
+
+natives :: [(String, NativeOperator)]
+natives =
+  [ ("no",) $ fn1 $ pure . Symbol . symbol . \case
+      Symbol Nil -> "t"
+      _ -> "nil"
+  ] where
+      doFn = (traverse evaluate >=>)
+      fn1 f = doFn \case [x] -> f x; args -> wrongNumArguments 1 args
 
 primitives :: [(String, Primitive)]
 primitives = (\p -> (primName p, p)) <$>
@@ -789,6 +806,7 @@ operator = \case
       Number n -> pure $ Just $ TheNumber n
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
+        Just (native . toList -> Just f) -> pure $ Just $ TheNativeOperator f
         Just (toList -> l) -> runMaybeT $
           (Closure <$> function l) <|> (Macro <$> macro l) <|> (Virfn <$> virfn l)
         _ -> pure Nothing
@@ -849,6 +867,12 @@ destructure p a' = pushScope *> go p a' <* popScope where
               -- ((fn ((o x) . (o y)) t))
               (Just (v1, _d1), Just (v2, d2)) -> evaluate d2 >>= \e2 ->
                 go' (v1, x) (v2, e2)
+
+wrongNumArguments :: Int -> [a] -> EvalMonad (Object IORef)
+wrongNumArguments n args = case compare (length args) n of
+  LT -> tooFewArguments
+  GT -> tooManyArguments
+  EQ -> interpreterBug "called 'wrongNumArguments', but we had the correct number of arguments :|"
 
 tooFewArguments :: EvalMonad (Object IORef)
 tooFewArguments = throwError "Too few arguments in function call"
@@ -912,6 +936,7 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
               [] -> throwError "tried to call a continuation with no arguments"
               [x] -> evaluate x >>= c
               _ -> throwError "tried to call a continuation with too many arguments"
+            TheNativeOperator f -> f args
             TheOptimizedFunction f -> fnBody f args >>= \case
               Just x -> pure x
               Nothing -> (map Pair $ newRef $ MkPair $ fnFallback f) >>= operator >>= \case

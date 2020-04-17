@@ -49,7 +49,7 @@ main = stringToState belDotBelState >>= either die pure >>= withNativeFns >>= \b
           hydrated <- case state (req :: StatefulRequest) of
             "" -> pure baseState
             s -> stringToState (decompressState s) >>=
-              either ((*> finish) . text . pack . ("malformed state: " <>)) withNativeFns
+              either ((*> finish) . text . pack . ("malformed state: " <>)) (liftIO . withNativeFns)
           (r, s) <- liftIO $ readThenRunEval "" (expr req) hydrated
           r' <- either pure repr r
           s' <- compressState <$> stateToString s

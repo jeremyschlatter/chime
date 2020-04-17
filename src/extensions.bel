@@ -3,3 +3,11 @@
 
 (vir tab (f args)
   `(tabref2 ,f ,@args))
+
+(set natives nil)
+
+(mac native (name code)
+  `(unless (isa!native ,code) (set natives (put ',name ,code natives))))
+
+(vir native (f args)
+  `(,(cdr (get (caddr f) natives)) ,@args))
