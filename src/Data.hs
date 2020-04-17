@@ -300,25 +300,12 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
   reprShare ref = do
     mb <- lift $ runMaybeT $
       (MaybeT (string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""))
-      <|> maybeQuoted "~backquote" "`"
-      <|> maybeQuoted' "~comma" ","
-      <|> maybeQuoted' "~splice" ",@"
       <|> maybeNumber
     go "(" ")" ref <&> \s -> maybe s id mb
     where
       maybeNumber :: MaybeT m String
       maybeNumber = number (Pair ref) <&> showNumber
 
-      maybeQuoted :: String -> String -> MaybeT m String
-      maybeQuoted name p = readRef ref >>= \case
-        MkPair (Sym n ame, Pair rest) | n:ame == name ->
-           readRef rest >>= \case
-             MkPair (x, Symbol Nil) -> repr x <&> (p <>)
-             _ -> empty
-        _ -> empty
-      maybeQuoted' name p = readRef ref >>= \case
-        MkPair (Sym n ame, x) | n:ame == name -> repr x <&> (p <>)
-        _ -> empty
       escaped :: Character -> String
       escaped (MkCharacter ' ') = " " -- special case for space, not escaped when embedded in string
       escaped c = maybe (pure $ unCharacter c) ("\\" <>) (escapeSequence c)

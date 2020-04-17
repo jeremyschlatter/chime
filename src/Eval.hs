@@ -432,17 +432,6 @@ specialForms = (\f -> (formName f, f)) <$>
   , Form1 "ccc" $ evaluate >=> \f -> callCC \cont -> do
       c <- Pair <$> (newRef @EvalMonad $ Continuation cont)
       listToObject [pure f, pure c] >>= evreturn
-  -- @incomplete: implement this in a way that cannot clash with user symbols
-  , Form1 "~backquote" let
-      go = \case
-        Pair ref -> readPair "backquote" ref >>= \p -> case p of
-          (Sym '~' "comma", x) -> Left <$> evaluate x
-          (Sym '~' "splice", x) -> Right <$> evaluate x
-          _ -> bimapM go go p >>= \(x, either id id -> cdr) -> Left <$> case x of
-            Left car -> car .* cdr
-            Right prefix -> append prefix cdr
-        x -> pure $ Left x
-      in map (either id id) . go
   ]
 
 formWhere :: Bool -> Object IORef -> EvalMonad (Object IORef)
