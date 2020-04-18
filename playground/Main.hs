@@ -33,7 +33,7 @@ decompressState :: Text -> String
 decompressState = unpack . decodeUtf8 . decompress . Base64.decodeLenient . encodeUtf8
 
 main :: IO ()
-main = stringToState belDotBelState >>= either die pure >>= withNativeFns >>= \baseState ->
+main = stringToState belDotBelState >>= either die pure >>= \baseState ->
   (read . fromMaybe "8080" <$> lookupEnv "PORT") >>= flip scotty do
 
     post "/" do
@@ -49,7 +49,7 @@ main = stringToState belDotBelState >>= either die pure >>= withNativeFns >>= \b
           hydrated <- case state (req :: StatefulRequest) of
             "" -> pure baseState
             s -> stringToState (decompressState s) >>=
-              either ((*> finish) . text . pack . ("malformed state: " <>)) (liftIO . withNativeFns)
+              either ((*> finish) . text . pack . ("malformed state: " <>)) pure
           (r, s) <- liftIO $ readThenRunEval "" (expr req) hydrated
           r' <- either pure repr r
           s' <- compressState <$> stateToString s

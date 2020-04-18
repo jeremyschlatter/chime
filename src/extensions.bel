@@ -6,14 +6,14 @@
 
 (set natives nil)
 
-(mac native (name code)
-  `(unless (isa!native ,code) (set natives (put ',name ,code natives))))
-
 (def spec (f)
   (cdr (get (if (isa!native f) caddr.f f) natives)))
 
 (vir native (f args)
   `(,(spec f) ,@args))
+
+(mac native (name code)
+  `(unless (isa!native ,code) (set natives (put ',name ,code natives))))
 
 (native set
   (macro args
@@ -30,3 +30,9 @@
 
 (mac mac (n . rest)
   `(set ,n (macro ,@rest)))
+
+(each op native-ops
+  ((macro ()
+     `(unless (isa!native ,op)
+        (set natives (put op ,op natives))
+        (set ,op (lit native ,op))))))

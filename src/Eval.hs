@@ -67,6 +67,7 @@ builtins = (globe <~) $ traverse
   , "coin"
   , "err"
   ] <> map (\(nm, _) -> (nm, "lit" ~~ "native" ~| nm)) natives
+    <> [("native-ops", pureListToObject $ map (Symbol . symbol . fst) natives)]
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -167,17 +168,6 @@ nth = \case
       _ -> typecheckFailure
     in go n'
   _ -> const typecheckFailure
-
-withNativeFns :: EvalState -> IO EvalState
-withNativeFns = flip (foldM nativeFn) natives where
-  nativeFn s (nm, _) = runMaybeT (envLookup' (sym nm) (_globe s)) >>= \case
-    Nothing -> if nm `elem` ["time", "debug"] then pure s else
-      interpreterBug $ nm <> " was not present in the global state"
-    Just (_, x) -> snd <$> flip runEval s do
-      "do" ~~ ("native" ~~ nm ~| x) ~| ("set" ~~ nm ~| ("lit" ~~ "native" ~| nm)) >>= evaluate
-  sym = \case
-    [] -> interpreterBug "unexpected empty string"
-    n:ame -> Sym n ame
 
 numAdd :: Number -> Number -> Number
 numAdd a b = (realPart a + realPart b) :+ (imagPart a + imagPart b)
@@ -981,14 +971,14 @@ preludeIO = do
   (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
   either
     (\e -> interpreterBug $ "failed to interpret bel.bel: " <> e)
-    withNativeFns
+    pure
     (x $> s)
 
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
 repl :: EvalState -> IO ()
-repl = withNativeFns >=> \st -> getArgs >>= \case
+repl st = getArgs >>= \case
   [f] -> bel f st >>= either die (const (pure ()))
   _:_:_ -> die "Sorry, I can only handle up to one file"
   [] -> do
