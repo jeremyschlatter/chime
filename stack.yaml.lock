@@ -11,6 +11,13 @@ packages:
       sha256: 955117c00a86970f2d0c215f33cf5293b16589c04678a0a790c03368ab6fd0aa
   original:
     hackage: megaparsec-8.0.0
+- completed:
+    hackage: bytestring-delta-0.1.0.1@sha256:6c6de01d5b99e77eb3e59942dc7d2b30c54549f47f049a742bcbe45d3b3ea373,1702
+    pantry-tree:
+      size: 371
+      sha256: 97584bda0eac75c406f6a4ba645a2f9f8f3c117f43256044343611cb03f3525f
+  original:
+    hackage: bytestring-delta-0.1.0.1
 snapshots:
 - completed:
     size: 524804

@@ -75,6 +75,8 @@ executables:
     dependencies:
     - aeson
     - base64-bytestring
+    - bytestring
+    - bytestring-delta
     - chime
     - scotty
     - text

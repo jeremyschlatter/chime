@@ -4,10 +4,17 @@ module Main where
 import BasePrelude
 import Codec.Compression.Zstd.Lazy
 import Data.Aeson hiding (json)
-import qualified Data.ByteString.Base64.Lazy as Base64
-import Data.Text.Lazy
-import Data.Text.Lazy.Encoding
+import qualified Data.ByteString as ByteString
+import qualified Data.ByteString.Delta as Diff
 import Web.Scotty
+
+import Data.Text
+import Data.Text.Encoding
+
+import qualified Data.ByteString.Base64.Lazy as Lazy
+import qualified Data.ByteString.Lazy as LazyBytes
+import qualified Data.Text.Lazy as LazyText
+import qualified Data.Text.Lazy.Encoding as Lazy
 
 import CacheBelDotBel
 import Data
@@ -18,19 +25,36 @@ belDotBelState = $(serializedBelDotBelState)
 
 data StatefulRequest = StatefulRequest
   { expr :: String
-  , state :: Text
+  , state :: LazyText.Text
   } deriving (Generic, FromJSON)
 
 data StatefulResponse = StatefulResponse
   { result :: String
-  , state :: Text
+  , state :: LazyText.Text
   } deriving (Generic, ToJSON)
 
-compressState :: String -> Text
-compressState = decodeUtf8 . Base64.encode . compress 1 . encodeUtf8 . pack
+belDotBelStateBytes :: ByteString.ByteString
+belDotBelStateBytes = encodeUtf8 $ pack belDotBelState
 
-decompressState :: Text -> String
-decompressState = unpack . decodeUtf8 . decompress . Base64.decodeLenient . encodeUtf8
+compressState :: String -> LazyText.Text
+compressState =
+  Lazy.decodeUtf8
+  . Lazy.encode
+  . compress 1
+  . LazyBytes.fromStrict
+  . Diff.diff belDotBelStateBytes
+  . encodeUtf8
+  . pack
+
+decompressState :: LazyText.Text -> String
+decompressState =
+  unpack
+  . decodeUtf8
+  . fromRight ByteString.empty . Diff.patch belDotBelStateBytes
+  . LazyBytes.toStrict
+  . decompress
+  . Lazy.decodeLenient
+  . Lazy.encodeUtf8
 
 main :: IO ()
 main = stringToState belDotBelState >>= either die pure >>= \baseState ->
@@ -38,8 +62,9 @@ main = stringToState belDotBelState >>= either die pure >>= \baseState ->
 
     post "/" do
       addHeader "Access-Control-Allow-Origin" "*"
-      body >>= liftIO . flip (readThenRunEval "") baseState . unpack . decodeUtf8
-        >>= either pure repr . fst >>= text . pack
+      body >>= liftIO . flip (readThenRunEval "") baseState . unpack
+          . decodeUtf8 . LazyBytes.toStrict
+        >>= either pure repr . fst >>= text . LazyText.fromStrict . pack
 
     post "/stateful" do
       addHeader "Access-Control-Allow-Origin" "*"
@@ -49,7 +74,9 @@ main = stringToState belDotBelState >>= either die pure >>= \baseState ->
           hydrated <- case state (req :: StatefulRequest) of
             "" -> pure baseState
             s -> stringToState (decompressState s) >>=
-              either ((*> finish) . text . pack . ("malformed state: " <>)) pure
+              either
+                ((*> finish) . text . LazyText.fromStrict . pack . ("malformed state: " <>))
+                pure
           (r, s) <- liftIO $ readThenRunEval "" (expr req) hydrated
           r' <- either pure repr r
           s' <- compressState <$> stateToString s
