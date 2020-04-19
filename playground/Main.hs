@@ -7,6 +7,7 @@ import Data.Aeson hiding (json)
 import qualified Data.ByteString as ByteString
 import qualified Data.ByteString.Delta as Diff
 import Web.Scotty
+import Web.Scotty.Trans (ActionT)
 
 import Data.Text
 import Data.Text.Encoding
@@ -17,7 +18,7 @@ import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.Encoding as Lazy
 
 import CacheBelDotBel
-import Data
+import Data as Data
 import Eval
 
 belDotBelState :: String
@@ -56,6 +57,26 @@ decompressState =
   . Lazy.decodeLenient
   . Lazy.encodeUtf8
 
+stateful ::
+  EvalState
+  -> (String -> String -> EvalState -> IO (Either String (Data.Object IORef), EvalState))
+  -> ActionT LazyText.Text IO ()
+stateful baseState f = do
+  addHeader "Access-Control-Allow-Origin" "*"
+  body >>= (. decode) \case
+    Nothing -> text "malformed request"
+    Just req -> do
+      hydrated <- case state (req :: StatefulRequest) of
+        "" -> pure baseState
+        s -> stringToState (decompressState s) >>=
+          either
+            ((*> finish) . text . LazyText.fromStrict . pack . ("malformed state: " <>))
+            pure
+      (r, s) <- liftIO $ f "" (expr req) hydrated
+      r' <- either pure repr r
+      s' <- compressState <$> stateToString s
+      json $ StatefulResponse {result=r', state=s'}
+
 main :: IO ()
 main = stringToState belDotBelState >>= either die pure >>= \baseState ->
   (read . fromMaybe "8080" <$> lookupEnv "PORT") >>= flip scotty do
@@ -66,20 +87,8 @@ main = stringToState belDotBelState >>= either die pure >>= \baseState ->
           . decodeUtf8 . LazyBytes.toStrict
         >>= either pure repr . fst >>= text . LazyText.fromStrict . pack
 
-    post "/stateful" do
-      addHeader "Access-Control-Allow-Origin" "*"
-      body >>= (. decode) \case
-        Nothing -> text "malformed request"
-        Just req -> do
-          hydrated <- case state (req :: StatefulRequest) of
-            "" -> pure baseState
-            s -> stringToState (decompressState s) >>=
-              either
-                ((*> finish) . text . LazyText.fromStrict . pack . ("malformed state: " <>))
-                pure
-          (r, s) <- liftIO $ readThenRunEval "" (expr req) hydrated
-          r' <- either pure repr r
-          s' <- compressState <$> stateToString s
-          json $ StatefulResponse {result=r', state=s'}
+    post "/stateful" $ stateful baseState readThenRunEval
+
+    post "/stateful-long" $ stateful baseState readManyThenRunEval
 
     get "/" $ text "Chime API Server - send me Bel code and get eval results!"
