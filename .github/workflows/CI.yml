@@ -6,4 +6,4 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Run tests
-      run: docker run --rm -v "$(pwd)":/app gcr.io/jeremy-schlatter-public-images/bel-ci:2 bash /app/.github/entrypoint.sh
+      run: docker run --rm -v "$(pwd)":/app gcr.io/jeremy-schlatter-public-images/bel-ci:3 stack test --allow-different-user

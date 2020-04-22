@@ -1,19 +1,20 @@
 FROM haskell
+WORKDIR /app
 
+# Download and build dependencies.
 COPY stack.yaml stack.yaml.lock ./
 RUN echo "name: bel" > package.yaml
 RUN stack setup
-RUN stack build bytestring
+# Multiple groups b/c building all at once runs out of memory,
+# and for Docker cache re-use as I develop this image over time.
 RUN stack build \
-  base \
   base-prelude \
+  bytestring \
   lens \
   megaparsec \
   mtl \
   text \
-  transformers \
-  hspec \
-  HUnit
+  transformers
 RUN stack build \
   containers \
   directory \
@@ -22,4 +23,8 @@ RUN stack build \
   haskeline \
   parser-combinators \
   template-haskell \
-  time
+  time \
+  scotty
+RUN rm bel.cabal
+
+ENV CHIME_INCLUDE_SLOW_TESTS=1
