@@ -15,6 +15,7 @@ import Data.Text.Encoding
 import qualified Data.ByteString.Base64.Lazy as Lazy
 import qualified Data.ByteString.Lazy as LazyBytes
 import qualified Data.Text.Lazy as LazyText
+import qualified Data.Text.Lazy.Builder as LazyText
 import qualified Data.Text.Lazy.Encoding as Lazy
 
 import CacheBelDotBel
@@ -37,15 +38,15 @@ data StatefulResponse = StatefulResponse
 belDotBelStateBytes :: ByteString.ByteString
 belDotBelStateBytes = encodeUtf8 $ pack belDotBelState
 
-compressState :: String -> LazyText.Text
+compressState :: LazyText.Text -> LazyText.Text
 compressState =
   Lazy.decodeUtf8
   . Lazy.encode
   . compress 1
   . LazyBytes.fromStrict
   . Diff.diff belDotBelStateBytes
-  . encodeUtf8
-  . pack
+  . LazyBytes.toStrict
+  . Lazy.encodeUtf8
 
 decompressState :: LazyText.Text -> String
 decompressState =
@@ -74,7 +75,7 @@ stateful baseState f = do
             pure
       (r, s) <- liftIO $ f "" (expr req) hydrated
       r' <- either pure repr r
-      s' <- compressState <$> stateToString s
+      s' <- compressState . LazyText.toLazyText  <$> (stateToObject s >>= repr')
       json $ StatefulResponse {result=r', state=s'}
 
 main :: IO ()
