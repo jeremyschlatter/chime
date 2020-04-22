@@ -28,7 +28,7 @@ import Text.Megaparsec.Error
 
 import Common as P hiding (evaluate, getEnv, head, tail, mask, hClose)
 import Data
-import Parse (isEmptyLine, parse, parseMany, errorBundlePretty)
+import Parse (isEmptyLine, parse, parseMany)
 import qualified Parse
 
 builtins :: EvalMonad ()
