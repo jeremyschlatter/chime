@@ -10,12 +10,10 @@ import Data.Bitraversable
 import qualified Data.ByteString as B
 import Data.Text (pack)
 import Data.Text.Encoding
-import qualified Data.Text.Lazy as LT
-import Data.Text.Lazy.Builder as LT
 import System.IO
 import System.Random
 
-import Common hiding (fromString)
+import Common
 
 -- -----------------------------------------------------------------------
 
@@ -152,7 +150,7 @@ readPair _why x = readRef x >>= \case
   Continuation _ -> pure (Symbol Nil, Symbol Nil)
 
 instance EqRef r => Repr r (Either (r (Pair r)) Symbol) where
-  repr' = either repr' repr'
+  repr = either repr repr
 instance ToObject m r (Either (r (Pair r)) Symbol) where
   toObject = pure . either Pair Symbol
 
@@ -272,33 +270,30 @@ collectPairs = map fst . go ([], []) . Pair where
         _ -> pure (shares', seen')
     _ -> pure (shares, seen)
 
-repr :: (MonadRef m, Repr (Ref m) x) => x -> m String
-repr = map (LT.unpack . toLazyText) . repr'
-
 class Repr r x where
-  repr' :: (MonadRef m, r ~ Ref m) => x -> m Builder
-  reprShare :: (MonadRef m, r ~ Ref m) => x -> StateT (Shares r) m Builder
-  reprShare = lift . repr'
+  repr :: (MonadRef m, r ~ Ref m) => x -> m String
+  reprShare :: (MonadRef m, r ~ Ref m) => x -> StateT (Shares r) m String
+  reprShare = lift . repr
 instance Repr r Symbol where
-  repr' x = let
+  repr x = let
     s = toList $ unSymbol $ x
     -- @incomplete: This is not all of the cases in which
     --   the vertical bar escape is required.
     --   This also does not escape vertical bars embedded in
     --   the symbol.
     r = if elem ' ' s then "¦" <> s <> "¦" else s
-    in pure $ fromString r
+    in pure r
 instance EqRef r' => Repr r' (r' (Pair r')) where
-  repr' :: (EqRef r, MonadRef m, r ~ Ref m) => r (Pair r) -> m Builder
-  repr' ref = collectPairs ref >>= evalStateT (reprShare ref)
+  repr :: (EqRef r, MonadRef m, r ~ Ref m) => r (Pair r) -> m String
+  repr ref = collectPairs ref >>= evalStateT (reprShare ref)
   reprShare
     :: forall r m. (EqRef r, MonadRef m, r ~ Ref m)
-    => r (Pair r) -> StateT (Shares r) m Builder
+    => r (Pair r) -> StateT (Shares r) m String
   reprShare ref = do
     mb <- lift $ runMaybeT $
       (MaybeT (string (Pair ref) <&&> \l -> "\"" <> foldMap escaped l <> "\""))
       <|> maybeNumber
-    go "(" ")" ref <&> \s -> maybe s fromString mb
+    go "(" ")" ref <&> \s -> maybe s id mb
     where
       maybeNumber :: MaybeT m String
       maybeNumber = number (Pair ref) <&> showNumber
@@ -312,45 +307,44 @@ instance EqRef r' => Repr r' (r' (Pair r')) where
         (r,(ri,_)):xs | r == rr -> (r, (ri, True)) : xs
         x:xs -> x : setB rr xs
 
-      go :: String -> String -> r (Pair r) -> StateT (Shares r) m Builder
+      go :: String -> String -> r (Pair r) -> StateT (Shares r) m String
       go pre post ref' = do
         shares <- get
         case lookup ref' shares of
-          Just (i, True) -> pure $ fromString $ '#' : show i
+          Just (i, True) -> pure $ '#' : show i
           Just (i, False) -> do
             put $ setB ref' shares
             rep ('#' : show i <> "=")
           Nothing -> rep ""
         where
-          rep :: String -> StateT (Shares r) m Builder
           rep ms =
             readRef ref' >>= \case
-              Number n -> pure $ fromString $ ms <> showNumber n
-              Continuation _ -> pure $ fromString $ ms <> "<continuation>"
+              Number n -> pure $ ms <> showNumber n
+              Continuation _ -> pure $ ms <> "<continuation>"
               MkPair (car, cdr) -> reprShare car >>= \car' ->
-                (\s -> (fromString (ms <> pre) <> s <> fromString post)) . (car' <>)
+                (\s -> (ms <> pre <> s <> post)) . (car' <>)
                   <$> mcase2 (number, id) cdr \case
-                    Case1of2 n -> pure $ fromString (" . " <> showNumber n)
-                    Case2of2 (Symbol Nil) -> pure $ fromString ""
+                    Case1of2 n -> pure (" . " <> showNumber n)
+                    Case2of2 (Symbol Nil) -> pure ""
                     Case2of2 (Pair p') -> get >>= \st' -> case lookup p' st' of
-                      Just (i, True) -> pure $ fromString $ " . #" <> show i
-                      Just _ -> (fromString " . " <>) <$> go "(" ")" p'
-                      _ -> (fromString " " <>) <$> go "" "" p'
-                    Case2of2 x -> (fromString " . " <>) <$> reprShare x
+                      Just (i, True) -> pure $ " . #" <> show i
+                      Just _ -> (" . " <>) <$> go "(" ")" p'
+                      _ -> (" " <>) <$> go "" "" p'
+                    Case2of2 x -> (" . " <>) <$> reprShare x
 
 instance Repr r Character where
-  repr' c = pure $ fromString $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
+  repr c = pure $ "\\" <> maybe (pure (unCharacter c)) id (escapeSequence c)
 instance EqRef r => Repr r (Object r) where
-  repr' = \case
-    Symbol s -> repr' s
-    Pair p -> repr' p
-    Character c -> repr' c
-    Stream _ -> pure $ fromString "<stream>"
+  repr = \case
+    Symbol s -> repr s
+    Pair p -> repr p
+    Character c -> repr c
+    Stream _ -> pure "<stream>"
   reprShare = \case
     Symbol s -> reprShare s
     Pair p -> reprShare p
     Character c -> reprShare c
-    Stream _ -> pure $ fromString "<stream>"
+    Stream _ -> pure "<stream>"
 
 showNumber :: Complex Rational -> String
 showNumber (real :+ imag) =
