@@ -5,13 +5,6 @@
 
 packages:
 - completed:
-    hackage: megaparsec-8.0.0@sha256:362f85e243ecbcb550e1de6e5c74ba5a50c09edaa1208c99bc5b9fd242227fc6,3808
-    pantry-tree:
-      size: 1446
-      sha256: 955117c00a86970f2d0c215f33cf5293b16589c04678a0a790c03368ab6fd0aa
-  original:
-    hackage: megaparsec-8.0.0
-- completed:
     hackage: bytestring-delta-0.1.0.1@sha256:6c6de01d5b99e77eb3e59942dc7d2b30c54549f47f049a742bcbe45d3b3ea373,1702
     pantry-tree:
       size: 371
@@ -20,7 +13,7 @@ packages:
     hackage: bytestring-delta-0.1.0.1
 snapshots:
 - completed:
-    size: 524804
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/16.yaml
-    sha256: 4d1519a4372d051d47a5eae2241cf3fb54e113d7475f89707ddb6ec06add2888
-  original: lts-14.16
+    size: 492015
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/15/8.yaml
+    sha256: 926bc3d70249dd0ba05277ff00943c0addb35b627cb641752669e7cf771310d0
+  original: lts-15.8

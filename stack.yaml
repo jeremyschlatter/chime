@@ -1,8 +1,7 @@
-resolver: lts-14.16
+resolver: lts-15.8
 
 packages:
 - .
 
 extra-deps:
-- megaparsec-8.0.0
 - bytestring-delta-0.1.0.1
