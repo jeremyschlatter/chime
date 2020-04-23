@@ -11,7 +11,6 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
 import Data.Bitraversable
 import qualified Data.ByteString as B
-import Data.FileEmbed
 import qualified Data.Map.Strict as Map
 import Data.List.NonEmpty as NE (nonEmpty, head, tail, reverse, (<|))
 import Data.Text (singleton)
@@ -969,16 +968,6 @@ getOrCreateHistoryFile = do
   createDirectoryIfMissing True dir
   pure $ dir </> "bel-repl-history.txt"
 
-preludeIO :: IO EvalState
-preludeIO = do
-  b <- builtinsIO
-  prog <- parseMany "bel.bel" belDotBel >>= either (die . errorBundlePretty) pure
-  (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) b
-  either
-    (\e -> interpreterBug $ "failed to interpret bel.bel: " <> e)
-    pure
-    (x $> s)
-
 red :: String -> String
 red s = "\ESC[31m" <> s <> "\ESC[0m"
 
@@ -1017,6 +1006,3 @@ repl st = getArgs >>= \case
     isUnexpectedEOF b = case toList (bundleErrors b) of
       [TrivialError _ (Just EndOfInput) _] -> True
       _ -> False
-
-belDotBel :: String
-belDotBel = $(embedStringFile "src/prelude.bel") <> $(embedStringFile "src/extensions.bel")

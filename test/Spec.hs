@@ -10,6 +10,7 @@ import System.Random
 import Test.HUnit.Base
 import Test.Hspec
 
+import CacheBelDotBel
 import Common hiding (trace, (>), (>>), (>>>))
 import Data
 import Eval
