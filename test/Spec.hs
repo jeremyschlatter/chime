@@ -153,6 +153,8 @@ spec = do
       "(cdr \\x)" `is` "<error>"
       -- https://stackoverflow.com/a/7549810
       "``(a ,,(+ 1 2) ,(+ 3 4))" `is` "(bquote (a (comma 3) (comma (+ 3 4))))"
+      -- regression: mac was not capturing its local lexical environment
+      "(let x t ((mac m () x)))" `is` "t"
 
   describe "multi-line repl sessions" do
 

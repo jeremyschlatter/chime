@@ -401,8 +401,7 @@ natives =
       [] -> throwError "'def' received no arguments"
       n:rest -> fn rest >>= formSet . (n:) . pure
   , ("mac",) \case
-      [n, p, e] -> formSet =<<
-        ((n:) . pure <$> ("lit" ~~ "mac" ~| ("lit" ~~ "clo" ~~ "nil" ~~ p ~| e)))
+      n:rest -> "lit" ~~ "mac" ~| fn rest >>= formSet . (n:) . pure
       args -> wrongNumArguments 3 args
   , ("bquote",) \case
       [e] -> bqex e 0 >>= \case
