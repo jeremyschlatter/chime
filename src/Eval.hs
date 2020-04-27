@@ -561,6 +561,9 @@ nativeClos =
   , ("number",) $ fn1 \n -> (runMaybeT (number n)) <&> \case
       Just _ -> Sym 't' ""
       _ -> Symbol Nil
+  , ("load",) $ fn1 \x -> string x >>= \case
+      Nothing -> typecheckFailure
+      Just (map unCharacter -> f) -> liftIO (readFile f) >>= ($> Symbol Nil) . readThenEval f
 
   , ("no",) $ fn1 $ pure . Symbol . symbol . \case
       Symbol Nil -> "t"

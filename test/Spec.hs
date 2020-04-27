@@ -741,14 +741,13 @@ spec = do
         >> "(from \"foo\" (readall))"
         > "(a b c)"
 
---       @skip
---       replTest $ []
---         >> "(to \"example.bel\" (print '(def foo (x) (cons 'a x))))"
---         > "nil"
---         >> "(load \"example.bel\")"
---         > "nil"
---         >> "(foo 'b)"
---         > "(a . b)"
+      replTest $ []
+        >> "(to \"example.bel\" (print '(def foo (x) (cons 'a x))))"
+        > "nil"
+        >> "(load \"example.bel\")"
+        > "nil"
+        >> "(foo 'b)"
+        > "(a . b)"
 
       replTest $ []
         >> "(record (pr 'what) (pr \\ ) (pr \"he said\"))"
