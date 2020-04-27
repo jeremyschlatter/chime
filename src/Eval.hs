@@ -580,7 +580,7 @@ nativeClos =
       fn1 f = fnN \case [a] -> f a; args -> wrongNumArguments 1 args
       fn2 f = fnN \case [a, b] -> f a b; args -> wrongNumArguments 2 args
       fallbackClo nm args =
-        ("spec" ~| nm) ~~ listToObject @EvalMonad (quote <$> args) >>= evaluate
+        ("spec" ~| ("quote" ~| nm)) ~~ listToObject @EvalMonad (quote <$> args) >>= evaluate
       numFn1 :: (ToObject EvalMonad IORef r) =>
         String -> (Number -> r) -> (String, NativeOperator)
       numFn1 nm f = (nm,) $ fn1 \arg ->

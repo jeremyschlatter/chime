@@ -90,7 +90,7 @@ newStream :: (MonadRef m, Ref m ~ IORef, StreamBackend x) => Direction -> x -> m
 newStream d h = newRef (MkStream h d 0 7)
 
 emptyState :: (MonadRef m, Ref m ~ IORef, MonadIO m) => m EvalState
-emptyState = withnil (Symbol Nil) >>= \v -> EvalState [] (pure []) [] [] [] True v
+emptyState = withnil (Symbol Nil) >>= \v -> EvalState [] (pure []) [] [] [] False v
   <$> withnil (Pair v)
   <*> newStream In stdin
   <*> newStream Out stdout
