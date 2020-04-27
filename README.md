@@ -4,7 +4,7 @@
 
 An interpreter for Paul Graham's [Bel](http://paulgraham.com/bel.html) programming language.
 
-[Try it out in your browser](https://repl.bel-chime.com/).
+[Try it out in your browser](https://bel-repl.com).
 
 To run it locally, download a binary from the [release](https://github.com/jeremyschlatter/bel/releases/tag/v0.3.0) page.
 
