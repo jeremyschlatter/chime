@@ -78,6 +78,7 @@ data EvalState = EvalState
  , _stack :: [Object IORef]
  , _doDebug :: Bool
  , _vmark :: IORef (Pair IORef)
+ , _nativeHook :: IORef (Pair IORef)
  , _ins :: IORef Stream
  , _outs :: IORef Stream
  , _rng :: StdGen
@@ -89,11 +90,13 @@ newStream :: (MonadRef m, Ref m ~ IORef, StreamBackend x) => Direction -> x -> m
 newStream d h = newRef (MkStream h d 0 7)
 
 emptyState :: (MonadRef m, Ref m ~ IORef, MonadIO m) => m EvalState
-emptyState = EvalState [] (pure []) [] [] [] False
-  <$> newRef (MkPair (Symbol Nil, Symbol Nil))
+emptyState = withnil (Symbol Nil) >>= \v -> EvalState [] (pure []) [] [] [] True v
+  <$> withnil (Pair v)
   <*> newStream In stdin
   <*> newStream Out stdout
   <*> liftIO newStdGen
+  where
+    withnil = newRef . MkPair . (, Symbol Nil)
 
 
 -- -----------------------------------------------------------------------
@@ -118,12 +121,12 @@ objectToState :: (MonadMutableRef m, IORef ~ Ref m, MonadIO m)
   => Object (Ref m) -> m (Either String EvalState)
 objectToState = properList >=> \case
   Nothing -> pure $ Left $ "not a proper list"
-  Just [g, v] -> bisequence (toKVPair g, toKVPair v) >>= \case
-    (Just ("globe", g'), Just ("vmark", Pair v')) -> do
+  Just [g, v, h] -> (,,) <$> toKVPair g <*> toKVPair v <*> toKVPair h >>= \case
+    (Just ("globe", g'), Just ("vmark", Pair v'), Just ("hook", Pair h')) -> do
       base <- emptyState
       objectToEnv g' <&> \case
         Nothing -> Left $ "'globe' was not a valid environment"
-        Just e -> Right $ base { _vmark = v', _globe = e }
+        Just e -> Right $ base { _globe = e, _vmark = v', _nativeHook = h' }
     _ -> pure $ Left $ "state is missing one or both of 'globe' and 'vmark' fields"
   Just _ -> pure $ Left $ "wrong number of items in state"
 
@@ -131,6 +134,7 @@ stateToObject :: (MonadRef m, IORef ~ Ref m) => EvalState -> m (Object (Ref m))
 stateToObject s = listToObject
   [ pure (Sym 'g' "lobe") >< envToObject (_globe s)
   , pure (Sym 'v' "mark") >< pure (Pair (_vmark s))
+  , pure (Sym 'h' "ook") >< pure (Pair (_nativeHook s))
   ]
 
 stateToString :: (MonadRef m, Ref m ~ IORef) => EvalState -> m String

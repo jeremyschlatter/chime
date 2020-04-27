@@ -1,38 +1,15 @@
+(with (doc (list (uvar) "This function is implemented natively in Chime.")
+       hook (car:1:3 time))
+  (each nm native-ops
+    (set
+      (let op ((macro () nm))
+        (if (isa!mac op)
+            (cddr:3 op)
+            (cddr op)))
+      `(((,hook . ,nm) ,doc) () ()))))
+
 (def tabref2 (tab key (o default))
    (ifwhere (cdr:tabloc tab key) (tabref tab key)))
 
 (vir tab (f args)
   `(tabref2 ,f ,@args))
-
-(set natives nil)
-
-(def spec (f)
-  (cdr (get (if (isa!native f) caddr.f f) natives)))
-
-(vir native (f args)
-  `(,(spec f) ,@args))
-
-(mac native (name code)
-  `(unless (isa!native ,code) (set natives (put ',name ,code natives))))
-
-(native set
-  (macro args
-    (cons 'do
-          (map (fn ((p (o e t)))
-                 (letu v
-                   `(atomic (let ,v ,e
-                              (let (cell loc) (where ,p t)
-                                ((case loc a xar d xdr) cell ,v))))))
-               (hug args)))))
-
-(mac def (n . rest)
-  `(set ,n (fn ,@rest)))
-
-(mac mac (n . rest)
-  `(set ,n (macro ,@rest)))
-
-(each op native-ops
-  ((macro ()
-     `(unless (isa!native ,op)
-        (set natives (put op ,op natives))
-        (set ,op (lit native ,op))))))

@@ -451,14 +451,7 @@ spec = do
       "((fn (x (o y x)) y) 'a)" `is` "a"
       "((fn (f x|f) x) pair 'a)" `is` "<error>"
       "(2 '(a b c))" `is` "b"
-
-      -- Spec non-compliance: because of how we implement optimized functions,
-      -- append is a (lit native ...), not a (lit clo ...).
-      -- Our implementation of `function` checks for native, but the one in bel.bel
-      -- does not.
-      -- "(map function (list car append 'foo))" `is` "(prim clo nil)"
-      "(map function (list car append 'foo))" `is` "(prim native nil)"
-
+      "(map function (list car append 'foo))" `is` "(prim clo nil)"
       "(map (con 'yo) '(a b c))" `is` "(yo yo yo)"
       "((compose car cdr) '(a b c))" `is` "b"
       "(car:cdr '(a b c))" `is` "b"

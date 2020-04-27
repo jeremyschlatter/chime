@@ -31,7 +31,7 @@ import Parse (isEmptyLine, parse, parseMany)
 import qualified Parse
 
 builtins :: EvalMonad ()
-builtins = (globe <~) $ traverse
+builtins = use nativeHook >>= \hook -> (globe <~) $ traverse
     ((\(s, x') -> x' >>= \x -> newRef $ MkPair $ (s, x)) . first (Symbol . sym')) $
   [ ("nil", sym "nil")
   , ("o", sym "o")
@@ -65,8 +65,11 @@ builtins = (globe <~) $ traverse
   , "stat"
   , "coin"
   , "err"
-  ] <> map (\(nm, _) -> (nm, "lit" ~~ "native" ~| nm)) natives
-    <> [("native-ops", pureListToObject $ map (Symbol . symbol . fst) natives)]
+  ] <> flip map nativeClos (\(nm, _) -> (nm,)
+         ("lit" ~~ "clo" ~~ ((Pair hook ~~ nm) ~~ "nil") ~~ "nil" ~| "nil"))
+    <> flip map nativeMacs (\(nm, _) -> (nm,) $ "lit" ~~ "mac" ~|
+         ("lit" ~~ "clo" ~~ ((Pair hook ~~ nm) ~~ "nil") ~~ "nil" ~| "nil"))
+    <> [("native-ops", pureListToObject $ map (Symbol . symbol . fst) (nativeClos <> nativeMacs))]
   where
     -- NOTE: sym and sym' are unsafe!
     --   They error if called on the empty string.
@@ -115,6 +118,8 @@ bqexpair e n = do
   if achange || dchange
   then map (, True) $ carisSplice d >>= \case
     True -> carisSplice a >>= \case
+      -- @performance: can we do the calls to spa and spd right here, and avoid
+      -- the dispatch? can we do the same for all of these calls?
       True -> "apply" ~~ "append" ~~ ("spa" ~| cadr a) ~| ("spd" ~| cadr d)
       False -> "apply" ~~ "cons" ~~ a ~| ("spd" ~| cadr d)
     False -> carisSplice a >>= \case
@@ -380,10 +385,22 @@ primitive = \case
 
 type NativeOperator = [Object IORef] -> EvalMonad (Object IORef)
 
-native :: [Object IORef] -> Maybe NativeOperator
-native = \case
-  [Sym 'l' "it", Sym 'n' "ative", Symbol op] -> Map.lookup op nativesLookup
-  _ -> Nothing
+nativeClo :: [Object IORef] -> EvalMonad (Maybe NativeOperator)
+nativeClo = \case
+  [Sym 'l' "it", Sym 'c' "lo", Pair r, _, _] -> use nativeHook >>= \hook ->
+    readRef r >>= \case
+      MkPair (Pair a, _) -> readRef a <&> \case
+        MkPair (Pair x, Symbol op) | x == hook -> Map.lookup op nativesLookup
+        _ -> Nothing
+      _ -> pure Nothing
+  _ -> pure Nothing
+
+nativeMac :: [Object IORef] -> EvalMonad (Maybe NativeOperator)
+nativeMac = \case
+  [Sym 'l' "it", Sym 'm' "ac", Pair r] -> properList1 r >>= \case
+    Just x -> nativeClo $ toList x
+    _ -> pure Nothing
+  _ -> pure Nothing
 
 symbol :: String -> Symbol
 symbol = \case
@@ -392,10 +409,10 @@ symbol = \case
   s:ss -> MkSymbol $ s:|ss
 
 nativesLookup :: Map.Map Symbol NativeOperator
-nativesLookup = Map.fromList $ first symbol <$> natives
+nativesLookup = Map.fromList $ first symbol <$> (nativeClos <> nativeMacs)
 
-natives :: [(String, NativeOperator)]
-natives =
+nativeMacs :: [(String, NativeOperator)]
+nativeMacs =
   [ ("set",) formSet
   , ("def",) \case
       [] -> throwError "'def' received no arguments"
@@ -411,17 +428,6 @@ natives =
   , ("comma",) \_ -> throwError "comma outside backquote"
   , ("comma-at",) \_ -> throwError "comma-at outside backquote"
   , ("splice",) \_ -> throwError "comma-at outside list"
-  , ("spa",) $ fn1 \case
-      x@(Symbol Nil) -> pure x
-      x@(Pair _) -> pure x
-      _ -> throwError "splice-atom"
-  , ("spd",) $ fn1 \case
-      Symbol Nil -> throwError "splice-empty-cdr"
-      x@(Pair r) -> readPair "spd" r >>= (. snd) \case
-        Symbol Nil -> pure x
-        _ -> throwError "splice-multiple-cdrs"
-      _ -> throwError "splice-atom"
-
   , ("or",) let
       go = \case
         [] -> pure $ Symbol Nil
@@ -438,10 +444,24 @@ natives =
           _ -> go xs
       in go
   , ("fn",) fn
+
   , ("ifwhere",) \case
       [y, n] -> use locs >>= evreturn . \case Just _:_ -> y; _ -> n
       args -> wrongNumArguments 2 args
+  ]
 
+nativeClos :: [(String, NativeOperator)]
+nativeClos =
+  [ ("spa",) $ fn1 \case
+      x@(Symbol Nil) -> pure x
+      x@(Pair _) -> pure x
+      _ -> throwError "splice-atom"
+  , ("spd",) $ fn1 \case
+      Symbol Nil -> throwError "splice-empty-cdr"
+      x@(Pair r) -> readPair "spd" r >>= (. snd) \case
+        Symbol Nil -> pure x
+        _ -> throwError "splice-multiple-cdrs"
+      _ -> throwError "splice-atom"
   , numFnN "+" $ foldr numAdd (0 :+ 0)
   , numFnN "-" \case
       [] -> (0 :+ 0)
@@ -541,6 +561,7 @@ natives =
   , ("number",) $ fn1 $ \n -> (runMaybeT (number n)) <&> \case
       Just _ -> Sym 't' ""
       _ -> Symbol Nil
+
   , ("no",) $ fn1 $ pure . Symbol . symbol . \case
       Symbol Nil -> "t"
       _ -> "nil"
@@ -728,9 +749,11 @@ operator = \case
       Number n -> pure $ Just $ TheNumber n
       _ -> properList1 ref >>= \case
         Just (primitive . toList -> Just f) -> pure $ Just $ Primitive f
-        Just (native . toList -> Just f) -> pure $ Just $ TheNativeOperator f
-        Just (toList -> l) -> runMaybeT $
-          (Closure <$> function l) <|> (Macro <$> macro l) <|> (Virfn <$> virfn l)
+        Just (toList -> l) -> (,) <$> nativeClo l <*> nativeMac l >>= \case
+          (Just clo, _) -> pure $ Just $ TheNativeOperator clo
+          (_, Just mac) -> pure $ Just $ TheNativeOperator mac
+          _ -> runMaybeT $
+            (Closure <$> function l) <|> (Macro <$> macro l) <|> (Virfn <$> virfn l)
         _ -> pure Nothing
     _ -> pure Nothing
 
