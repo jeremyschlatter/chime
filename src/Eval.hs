@@ -558,7 +558,7 @@ nativeClos =
   , ("floor",) $ fn1 $ runMaybeT . number >=> \case
       Just (n :+ 0) -> toObject $ (((floor n % 1) :+ 0) :: Complex Rational)
       _ -> typecheckFailure
-  , ("number",) $ fn1 $ \n -> (runMaybeT (number n)) <&> \case
+  , ("number",) $ fn1 \n -> (runMaybeT (number n)) <&> \case
       Just _ -> Sym 't' ""
       _ -> Symbol Nil
 
