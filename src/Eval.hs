@@ -25,7 +25,7 @@ import System.Random
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Error
 
-import Common as P hiding (evaluate, getEnv, head, tail, mask, hClose)
+import Common as P hiding (evaluate, getEnv, head, tail, mask, hClose, readFile)
 import Data
 import Parse (isEmptyLine, parse, parseMany)
 import qualified Parse
@@ -563,7 +563,7 @@ nativeClos =
       _ -> Symbol Nil
   , ("load",) $ fn1 \x -> string x >>= \case
       Nothing -> typecheckFailure
-      Just (map unCharacter -> f) -> liftIO (readFile f) >>= ($> Symbol Nil) . readThenEval f
+      Just (map unCharacter -> f) -> liftIO (readUtf8File f) >>= ($> Symbol Nil) . readThenEval f
 
   , ("no",) $ fn1 $ pure . Symbol . symbol . \case
       Symbol Nil -> "t"
@@ -981,8 +981,11 @@ readManyThenRunEval f s0 st = do
 builtinsIO :: IO EvalState
 builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
 
+readUtf8File :: FilePath -> IO String
+readUtf8File f = B.readFile f <&> T.unpack . decodeUtf8
+
 bel :: FilePath -> EvalState -> IO (Either Error EvalState)
-bel f st = readFile f >>= \s0 -> do
+bel f st = readUtf8File f >>= \s0 -> do
   prog <- parseMany f s0 >>= either (die . errorBundlePretty) pure
   (x, s) <- runEval (traverse_ evaluate prog $> Symbol Nil) st
   pure (x $> s)

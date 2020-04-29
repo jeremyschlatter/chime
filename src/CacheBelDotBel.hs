@@ -1,6 +1,8 @@
 module CacheBelDotBel where
 
 import Data.FileEmbed
+import Data.Text
+import Data.Text.Encoding
 import Language.Haskell.TH.Syntax
 
 import Common hiding (evaluate)
@@ -18,7 +20,8 @@ stringToState s = parse "" s >>= \case
   Right obj -> objectToState obj
 
 belDotBel :: String
-belDotBel = $(embedStringFile "src/prelude.bel") <> $(embedStringFile "src/extensions.bel")
+belDotBel = unpack $ decodeUtf8 $
+  $(embedFile "src/prelude.bel") <> $(embedFile "src/extensions.bel")
 
 preludeIO :: IO EvalState
 preludeIO = do
