@@ -2,6 +2,7 @@ resolver: lts-15.3
 
 packages:
 - .
+- playground
 
 extra-deps:
 - bytestring-delta-0.1.0.1

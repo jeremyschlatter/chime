@@ -1,11 +1,8 @@
-name:                chime
+name:                chime-playground
 version:             0.1.0.0
 github:              "jeremyschlatter/chime"
 author:              "Jeremy Schlatter"
 copyright:           "2020 Jeremy Schlatter"
-
-extra-source-files:
-- README.md
 
 description:         Please see the README on GitHub at <https://github.com/jeremyschlatter/chime#readme>
 
@@ -47,50 +44,19 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 
-library:
-  source-dirs: src
-  dependencies:
-  - bytestring
-  - containers
-  - directory
-  - file-embed
-  - filepath
-  - haskeline
-  - lens
-  - megaparsec
-  - mtl
-  - parser-combinators
-  - random
-  - template-haskell
-  - text
-  - time
-  - transformers
-
 executables:
-  chime:
-    main:                Main.hs
-    source-dirs:         app
+  playground:
+    main:         Main.hs
+    source-dirs:  .
     ghc-options:
     - -rtsopts
     dependencies:
     - chime
-
-tests:
-  chime-test:
-    main:                Spec.hs
-    source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - chime
+    - aeson
+    - base64-bytestring
     - bytestring
-    - hspec
-    - HUnit
-    - random
-    - raw-strings-qq
-    - template-haskell
+    - bytestring-delta
+    - chime
+    - scotty
     - text
-    - time
-    - transformers
+    - zstd
