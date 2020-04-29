@@ -2,7 +2,7 @@ name:                chime
 version:             0.1.0.0
 github:              "jeremyschlatter/chime"
 author:              "Jeremy Schlatter"
-copyright:           "2019 Jeremy Schlatter"
+copyright:           "2020 Jeremy Schlatter"
 
 extra-source-files:
 - README.md
