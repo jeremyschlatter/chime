@@ -16,7 +16,7 @@ Good enough for learning and playing with Bel, not yet good enough to use [in an
 
 Everything in the spec is implemented except for threads and syscalls.
 
-Every REPL example in the spec works as shown except for a few where the example output is slightly incorrect in the spec (eg the spec shows a truthy value as `t` when actually the value contains more info than that).
+Every REPL example in the spec works as shown except for a few cases where the example output is slightly incorrect in the spec (eg the spec shows a truthy value as `t` when actually the value contains more info than that).
 
 Some optimization work has been done, but code still runs very slowly.
 
