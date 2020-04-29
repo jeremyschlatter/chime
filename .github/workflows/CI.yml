@@ -5,5 +5,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
+    - name: Cache deps
+      uses: actions/cache@v1
+      with:
+        path: ~/.stack
+        key: stack
     - name: Run tests
-      run: docker run --rm -v "$(pwd)":/app gcr.io/jeremy-schlatter-public-images/bel-ci:3 stack test --ghc-options=-Werror --allow-different-user
+      run: CHIME_INCLUDE_SLOW_TESTS=1 stack test --ghc-options=-Werror
