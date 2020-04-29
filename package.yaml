@@ -103,6 +103,7 @@ tests:
     - hspec
     - HUnit
     - random
+    - raw-strings-qq
     - template-haskell
     - text
     - time

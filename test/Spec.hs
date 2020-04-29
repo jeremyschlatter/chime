@@ -5,10 +5,10 @@ import qualified Data.ByteString as B
 import Data.Text (unpack)
 import Data.Text.Encoding
 import Data.Time.Clock
-import RawStringsQQ
 import System.Random
 import Test.HUnit.Base
 import Test.Hspec
+import Text.RawString.QQ
 
 import CacheBelDotBel
 import Common hiding (trace, (>), (>>), (>>>))
