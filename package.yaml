@@ -37,8 +37,15 @@ default-extensions:
 - ViewPatterns
 
 ghc-options:
-- -Wall
 - -O2
+- -Wall
+# https://github.com/commercialhaskell/rio/blob/e878b3d/rio/README.md#ghc-options
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wpartial-fields
+- -Wredundant-constraints
 
 library:
   source-dirs: src

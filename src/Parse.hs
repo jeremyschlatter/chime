@@ -92,7 +92,7 @@ composedSymbols = let
 surround :: String -> String -> Parser m a -> Parser m a
 surround a b x = lexLit a *> x <* lexLit b
 
-barQuotedSymbol :: MonadRef m => Parser m (Object (Ref m))
+barQuotedSymbol :: Parser m (Object (Ref m))
 barQuotedSymbol = (char '¦' *>) $ (<* lexLit "¦") $
   some1 (nonVBar <|> oneOf "#,`'\\.[](): !~|") <&> Symbol . MkSymbol
 

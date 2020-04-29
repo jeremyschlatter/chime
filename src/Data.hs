@@ -8,6 +8,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State
 import Data.Bitraversable
 import qualified Data.ByteString as B
+import Data.Kind
 import Data.Text (pack)
 import Data.Text.Encoding
 import System.IO
@@ -150,7 +151,7 @@ stateToString = stateToObject >=> repr
 -- the full power of IO here, so we restrict our interface to
 -- reading and writing references.
 class Monad m => MonadRef m where
-  type Ref m :: * -> *
+  type Ref m :: Type -> Type
   readRef :: Ref m a -> m a
   newRef :: a -> m (Ref m a)
 
