@@ -16,7 +16,7 @@ Good enough for learning and playing with Bel, not yet good enough to use [in an
 
 Everything in the spec is implemented except for threads and syscalls.
 
-Every REPL example in the spec works as shown except for a few cases where the example output is slightly incorrect in the spec (eg the spec shows a truthy value as `t` when actually the value contains more info than that).
+Every REPL example in the spec works as shown except for a few cases where the spec is slightly inconsistent (eg [the text](https://sep.yimg.com/ty/cdn/paulgraham/bellanguage.txt?t=1570993483&) shows a function returning a truthy value as `t` but the [bel.bel implementation](https://sep.yimg.com/ty/cdn/paulgraham/bel.bel?t=1570993483&) returns more info than that). In those cases Chime follows the behavior of bel.bel.
 
 Some optimization work has been done, but code still runs very slowly.
 
