@@ -1,8 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Eval where
 
-import Control.Lens.Combinators hiding (op)
-import Control.Lens.Operators hiding ((<|))
 import Control.Monad.Cont hiding (cont)
 import Control.Monad.Except hiding (throwError)
 import qualified Control.Monad.Except as E
@@ -17,6 +15,8 @@ import Data.Text (singleton)
 import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock
+import Lens.Micro hiding (_head)
+import Lens.Micro.Mtl
 import System.Console.Haskeline
 import System.Directory
 import System.FilePath
@@ -203,10 +203,14 @@ envLookup = post .: envLookup' where
     Just _:rest -> (locs .= rest) *> listToObject [pure $ Pair p, pure $ Sym 'd' ""]
     _ -> pure v
 
+-- https://github.com/ekmett/lens/issues/537#issuecomment-89372969
+_head :: Lens' (NonEmpty a) a
+_head f (a :| as) = (:| as) <$> f a
+
 vref :: Object IORef -> EvalMonad (Object IORef)
 vref s = do
   dyns' <- use dyns
-  scope' <- use $ scope._Wrapped._1
+  scope' <- use $ scope._head
   globe' <- use globe
   locs' <- use locs
   runMaybeT (envLookup s dyns' <|> envLookup s scope' <|> envLookup s globe') >>= flip maybe pure do
@@ -858,7 +862,7 @@ evreturn expr = use doDebug >>= \dbg -> (bool id (with stack expr) dbg) case exp
   -- symbols
   (Symbol (MkSymbol (toList -> s'))) -> case s' of
     "globe" -> getEnv globe
-    "scope" -> getEnv $ scope._Wrapped._1
+    "scope" -> getEnv $ scope._head
     _ -> vref expr
     where getEnv = use >=> listToObject . map (pure . Pair)
 

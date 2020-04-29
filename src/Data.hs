@@ -1,7 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Data where
 
-import Control.Lens.Combinators (makeLenses, makePrisms)
 import Control.Monad.Cont
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
@@ -11,6 +10,7 @@ import qualified Data.ByteString as B
 import Data.Kind
 import Data.Text (pack)
 import Data.Text.Encoding
+import Lens.Micro.TH
 import System.IO
 import System.Random
 
@@ -85,7 +85,6 @@ data EvalState = EvalState
  , _rng :: StdGen
  }
 $(makeLenses ''EvalState)
-$(makePrisms ''Object)
 
 newStream :: (MonadRef m, Ref m ~ IORef, StreamBackend x) => Direction -> x -> m (IORef Stream)
 newStream d h = newRef (MkStream h d 0 7)

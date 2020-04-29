@@ -56,8 +56,10 @@ library:
   - file-embed
   - filepath
   - haskeline
-  - lens
   - megaparsec
+  - microlens
+  - microlens-th
+  - microlens-mtl
   - mtl
   - parser-combinators
   - random
