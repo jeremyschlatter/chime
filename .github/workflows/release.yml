@@ -14,12 +14,15 @@ jobs:
         - os: ubuntu-latest
           name: linux
           ext: ''
+          archive: '.tar.gz'
         - os: macos-latest
           name: darwin
           ext: ''
+          archive: '.tar.gz'
         - os: windows-latest
           name: windows
           ext: '.exe'
+          archive: '.zip'
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -29,14 +32,20 @@ jobs:
         run: curl -sSL https://get.haskellstack.org/ | sh
         shell: bash
       - name: Build binary
-        run: stack install && cp $(stack path --local-bin)/chime${{ matrix.ext }} .
+        run: stack install chime && cp $(stack path --local-bin)/chime${{ matrix.ext }} .
         shell: bash
+      - name: zip up the binary
+        if: matrix.os == 'windows-latest'
+        run: Compress-Archive -Path chime.exe -DestinationPath chime.exe.zip
+      - name: tar up the binary
+        if: matrix.os != 'windows-latest'
+        run: tar -cf chime.tar.gz chime
       - name: Upload binary
         uses: actions/upload-release-asset@v1.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: chime${{ matrix.ext }}
-          asset_name: chime-x86_64-${{ matrix.name }}${{ matrix.ext}}
+          asset_path: chime${{ matrix.ext }}${{ matrix.archive }}
+          asset_name: chime-${{ github.event.release.tag_name }}-x86_64-${{ matrix.name }}${{ matrix.archive }}
           asset_content_type: application/octet-stream
