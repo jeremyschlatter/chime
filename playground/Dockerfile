@@ -31,15 +31,21 @@ RUN stack build \
   aeson \
   base64-bytestring \
   zstd
-RUN rm bel.cabal
+RUN rm bel.cabal && rm playground/playground.cabal
+
+RUN apt-get update
+RUN apt-get install -y libssl-dev
 
 # Build our code.
 COPY . .
-RUN stack install chime:playground
+RUN stack install ./playground
 
 # Copy into minimal image.
-FROM fpco/haskell-scratch:integer-gmp
+FROM debian
+RUN apt update && apt install -y ca-certificates
 COPY --from=builder /lib/x86_64-linux-gnu/libtinfo.so.5 /lib/x86_64-linux-gnu/libtinfo.so.5
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /usr/lib/x86_64-linux-gnu/libssl.so.1.1
 COPY --from=builder /root/.local/bin/playground /playground
 
 # Entrypoint.

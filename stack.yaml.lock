@@ -11,6 +11,13 @@ packages:
       sha256: 97584bda0eac75c406f6a4ba645a2f9f8f3c117f43256044343611cb03f3525f
   original:
     hackage: bytestring-delta-0.1.0.1
+- completed:
+    hackage: google-oauth2-jwt-0.3.2@sha256:4fc35d30ffc5f762bc1fc570e7cbb94bde268b40f0f822ba7ed9161fefbd9293,1349
+    pantry-tree:
+      size: 282
+      sha256: 88e9f2c7da298d850f1cbfd23148b5c856bf7e22b73f930b9270580c8f7ae512
+  original:
+    hackage: google-oauth2-jwt-0.3.2@sha256:4fc35d30ffc5f762bc1fc570e7cbb94bde268b40f0f822ba7ed9161fefbd9293,1349
 snapshots:
 - completed:
     size: 491373

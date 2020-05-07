@@ -6,3 +6,5 @@ packages:
 
 extra-deps:
 - bytestring-delta-0.1.0.1
+- google-oauth2-jwt-0.3.2@sha256:4fc35d30ffc5f762bc1fc570e7cbb94bde268b40f0f822ba7ed9161fefbd9293,1349
+

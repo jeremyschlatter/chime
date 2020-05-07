@@ -21,6 +21,7 @@ default-extensions:
 - InstanceSigs
 - LambdaCase
 - MultiParamTypeClasses
+- NumericUnderscores
 - NoImplicitPrelude
 - PatternSynonyms
 - QuantifiedConstraints
@@ -53,10 +54,13 @@ executables:
     dependencies:
     - chime
     - aeson
-    - base64-bytestring
+    - base64
     - bytestring
     - bytestring-delta
-    - chime
+    - cryptohash-sha256
+    - google-oauth2-jwt
+    - http-types
+    - http-conduit
     - scotty
     - text
     - zstd
