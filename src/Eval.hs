@@ -979,8 +979,9 @@ readThenRunEval p c s = flip runEval s $ readThenEval p c
 
 readManyThenRunEval :: FilePath -> String -> EvalState -> IO (Either Error (Object IORef), EvalState)
 readManyThenRunEval f s0 st = do
-  prog <- parseMany f s0 >>= either (die . errorBundlePretty) pure
-  runEval (last <$> traverse evaluate prog) st
+  parseMany f s0 >>= \case
+    Left err -> pure $ (Left $ errorBundlePretty err, st)
+    Right prog -> runEval (last <$> traverse evaluate prog) st
 
 builtinsIO :: IO EvalState
 builtinsIO = snd <$> (runEval (builtins $> Symbol Nil) =<< emptyState)
