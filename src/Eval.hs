@@ -42,7 +42,7 @@ builtins = use nativeHook >>= \hook -> (globe <~) $ traverse
   , ("chars",
       let convert = flip B.foldl [] \acc -> (acc <>) . \w ->
               toObject . bool '0' '1' . testBit w <$> P.reverse [0..7]
-      in listToObject $ flip map [0..127] \i ->
+      in listToObject $ flip map ([0..127] <> [166]) \i ->
            chr i .* (
             listToObject $ convert $ encodeUtf8 $ singleton $ chr i :: EvalMonad (Object IORef)
           )

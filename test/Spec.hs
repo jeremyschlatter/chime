@@ -936,6 +936,7 @@ spec = do
 
   describe "regressions" do
 
+    let is   = evalShouldBe
     let (>>) = replInput
     let (>)  = replOutput
 
@@ -973,6 +974,9 @@ spec = do
       >> "s2"
       > "\"barfOo\""
 
+    -- https://github.com/jeremyschlatter/chime/issues/7
+    it "includes \\¦ in the chars list" do
+      "(no:no (get \\¦ chars))" `is` "t"
 
 
 -- ----------------------------------------------------------------------------
