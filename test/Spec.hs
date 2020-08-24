@@ -934,6 +934,46 @@ spec = do
     --   parse and print more exotic symbols, including symbols
     --   with \¦ characters embedded in them
 
+  describe "regressions" do
+
+    let (>>) = replInput
+    let (>)  = replOutput
+
+    -- https://github.com/jeremyschlatter/chime/issues/6
+    it "append shares tails" $ replTest $ []
+      >> "(set L1 '(4 5 6))"
+      > "(4 5 6)"
+
+      >> "(set L2 (append '(1 2 3) L1))"
+      > "(1 2 3 4 5 6)"
+
+      >> "(set (2 L1) nil)"
+      > "nil"
+
+      >> "L1"
+      > "(4 nil 6)"
+
+      >> "L2"
+      > "(1 2 3 4 nil 6)"
+
+    -- https://github.com/jeremyschlatter/chime/issues/6
+    it "append shares tails (strings version)" $ replTest $ []
+      >> "(set s \"foo\")"
+      > "\"foo\""
+
+      >> "(set s2 (append \"bar\" s))"
+      > "\"barfoo\""
+
+      >> "(set (2 s) \\O)"
+      > "\\O"
+
+      >> "s"
+      > "\"fOo\""
+
+      >> "s2"
+      > "\"barfOo\""
+
+
 
 -- ----------------------------------------------------------------------------
 --                         parsing test helpers

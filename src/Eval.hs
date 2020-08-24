@@ -509,18 +509,15 @@ nativeClos =
         x:xs -> x ~~ go xs
       in go
   , ("append",) $ fnN let
-      go :: [Object IORef] -> [Object IORef] -> EvalMonad (Object IORef)
-      go accum = \case
-        [] -> listToObject (pure <$> accum)
-        [x] -> case accum of
-          [] -> pure x
-          xs -> properList x >>= \case
-            Nothing -> (pure @EvalMonad <$> xs) ~~ x
-            Just x' -> listToObject (pure <$> (xs <> x'))
-        x : xs -> properList x >>= \case
-          Nothing -> repr x >>= throwError . ("tried to append to a non-list: " <>)
-          Just l -> go (accum <> l) xs
-      in go []
+      go :: [Object IORef] -> EvalMonad (Object IORef)
+      go = \case
+        [] -> pure $ Symbol Nil
+        [x] -> pure x
+        x : xs -> case x of
+          Symbol Nil -> go xs
+          Pair r -> readPair "append" r >>= \(a, d) -> a ~~ go (d:xs)
+          _ -> repr x >>= throwError . ("tried to append to a non-list: " <>)
+      in go
   , ("nth",) $ fn2 \mn mxs -> runMaybeT (number mn) >>= \case
       Just n -> nth n mxs
       Nothing -> typecheckFailure
